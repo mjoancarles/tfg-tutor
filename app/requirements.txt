@@ -1,0 +1,9 @@
+streamlit==1.42.0
+langchain==0.3.18
+langchain-core==0.3.35
+langchain_qdrant==0.2.0
+langgraph==0.2.72
+tiktoken==0.8.0
+neo4j==5.28.1
+openai==1.63.0
+langchain-openai==0.3.5
