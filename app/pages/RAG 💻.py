@@ -12,7 +12,7 @@ from langchain_core.prompts.base import format_document
 from typing_extensions import List, TypedDict
 from langgraph.graph import START, StateGraph, MessagesState, END
 from langgraph.graph.message import add_messages
-from langchain_core.messages import HumanMessage, BaseMessage, AIMessage
+from langchain_core.messages import HumanMessage, BaseMessage, AIMessage, SystemMessage
 from langchain_core.prompts import PromptTemplate
 from langgraph.checkpoint.memory import MemorySaver
 from typing import Annotated, Sequence
@@ -20,7 +20,7 @@ from typing import Annotated, Sequence
 #from custom_chat_model import CustomLLM
 from interference_api_embeddings import InferenceAPIEmbeddings
 
-def initialize_app():
+def initialize_app(memory):
     st.set_page_config(
         page_title="RAG",
         page_icon=":desktop_computer:",
@@ -86,11 +86,9 @@ def initialize_app():
         - Link: (if available)
     Exclude any field that is NULL/EMPTY. Show only the top 5 most relevant results by default (unless the user requests more). After listing, include a brief explanation and comparison of the documents, highlighting key details in bold.
     Direct Answers:
-    If the query does not require listing documents, answer directly without showing retrieved documents.
+    If the query does not require listing documents, answer directly without showing retrieved documents. Always answer in english.
     ------------------------------
-    User Query: {question}
     Retrieved documents: {context}
-    Messages History: {history}
         """
     prompt = PromptTemplate.from_template(template)
 
@@ -105,9 +103,9 @@ def initialize_app():
     )
 
     # https://python.langchain.com/docs/tutorials/rag/
-    class State(MessagesState):
+    class State(TypedDict):
         context: List[Document]
-        # messages: Annotated[Sequence[BaseMessage], add_messages]
+        messages: List[BaseMessage]
 
     def retrieve(state: State):
         retrieved_docs = vector_store.similarity_search(state["messages"][0].content)
@@ -119,26 +117,37 @@ def initialize_app():
         question = messages[0].content
         #docs_content = "\n\n".join(doc.page_content for doc in state["context"])
         docs_content = "\n\n".join(format_document(doc, document_prompt) for doc in state["context"])
-        past_messages = "\n\n".join(f"{msg.role}: {msg.content}" for msg in state["messages"][1:])
-        print(past_messages)
-        messages = prompt.invoke({"question": question, "context": docs_content, "history": past_messages})
+        system_prompt = prompt.invoke({"context": docs_content}).to_string()
+        #print(system_prompt)
+        messages = [SystemMessage(system_prompt)] + messages
+        print(messages)
         response = llm.invoke(messages)
+        #print(type(response)) # <class 'langchain_core.messages.ai.AIMessage'>
         return {"messages": [response]}
 
-    memory = MemorySaver()
     graph_builder = StateGraph(State).add_sequence([retrieve, generate])
     graph_builder.add_edge(START, "retrieve")
+    graph_builder.add_edge("generate", END)
     graph = graph_builder.compile(checkpointer=memory)
     
     return graph
 
+memory = MemorySaver()
 # Initialize the app (this part runs once per script execution)
-graph = initialize_app()
+graph = initialize_app(memory)
 
 def main():
     # Initialize chat history in session state if not already present
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
+
+    # Build pipeline_messages list from the chat history
+    pipeline_messages = []
+    for chat in st.session_state.chat_history:
+        if chat["role"] == "user":
+            pipeline_messages.append(HumanMessage(chat["message"]))
+        elif chat["role"] == "assistant":
+            pipeline_messages.append(AIMessage(chat["message"]))
 
     # Display previous chat messages
     for chat in st.session_state.chat_history:
@@ -148,26 +157,34 @@ def main():
     # Chatbot interface using st.chat_input and st.chat_message
     user_input = st.chat_input("Ask your question about TFGs or publications")
     if user_input:
-        # Append user's message to chat history
+        # Append user's message to chat history and pipeline messages
         st.session_state.chat_history.append({"role": "user", "message": user_input})
         with st.chat_message("user"):
             st.write(user_input)
-        
+        pipeline_messages.append(HumanMessage(user_input))
+
         # Process the user's question through the retrieval/generation pipeline
         config = {"configurable": {"thread_id": "1"}}
+
+        # Variable to accumulate the complete assistant response
+        complete_response = ""
+
         def generate_streaming_message():
-            for messages, metadata in graph.stream(
-                {"messages": [HumanMessage(user_input)]},
+            nonlocal complete_response
+            # Pass the full conversation history into the pipeline
+            for message, metadata in graph.stream(
+                {"messages": pipeline_messages},
                 stream_mode="messages",
                 config=config
             ):
-                yield messages.content
+                complete_response += message.content
+                yield message.content
 
         with st.chat_message("assistant"):
-            assistant_answer= st.write_stream(generate_streaming_message())
-        
-        # Append assistant's answer to chat history
-        st.session_state.chat_history.append({"role": "assistant", "message": assistant_answer})
+            st.write_stream(generate_streaming_message())
+
+        # Append the complete assistant response to chat history
+        st.session_state.chat_history.append({"role": "assistant", "message": complete_response})
 
 if __name__ == "__main__":
     main()
