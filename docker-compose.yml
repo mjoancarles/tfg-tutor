@@ -17,7 +17,7 @@ services:
       - "host.docker.internal:host-gateway"
 
   neo4j:
-    image: neo4j:latest
+    image: neo4j:5.25
     container_name: neo4j
     ports:
       - "7200:7474"  # HTTP port for Neo4j Browser
