@@ -11,11 +11,9 @@ from langchain_core.documents import Document
 from langchain_core.prompts.base import format_document
 from typing_extensions import List, TypedDict
 from langgraph.graph import START, StateGraph, MessagesState, END
-from langgraph.graph.message import add_messages
 from langchain_core.messages import HumanMessage, BaseMessage, AIMessage, SystemMessage
 from langchain_core.prompts import PromptTemplate
 from langgraph.checkpoint.memory import MemorySaver
-from typing import Annotated, Sequence
 # Own setup of LLM and Embeddings
 #from custom_chat_model import CustomLLM
 from interference_api_embeddings import InferenceAPIEmbeddings
@@ -27,7 +25,7 @@ def initialize_app(memory):
         layout="centered",
         initial_sidebar_state="collapsed", # To be changed if having filters!
     )
-    st.title("TFG Tutor Chatbot")
+    st.title("RAG - TFG Tutor Chatbot")
 
     # --- Enforce Login ---
     _ ='''if not st.session_state.get("logged_in", False):
