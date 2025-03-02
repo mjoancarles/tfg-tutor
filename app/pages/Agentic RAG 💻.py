@@ -4,15 +4,19 @@ from langchain_neo4j import Neo4jGraph, Neo4jVector
 import requests
 from langchain.embeddings.base import Embeddings
 import os
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 from operator import add
 from typing_extensions import TypedDict
-from typing import Literal, Annotated, List
+from typing import Literal, Annotated, List, Dict, Optional
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 from langchain_core.example_selectors import SemanticSimilarityExampleSelector
 from langgraph.graph import END, START, StateGraph
 from langchain_core.output_parsers import StrOutputParser
+
+# ------------------------------------------------------------------------------------
+# STREAMLIT / LANGCHAIN SETUP
+# ------------------------------------------------------------------------------------
 
 st.set_page_config(
     page_title="Agentic RAG",
@@ -46,14 +50,18 @@ class InferenceAPIEmbeddings(Embeddings):
     def embed_query(self, text: str) -> List[float]:
         return self.embed_documents([text])[0]  # Embed a single query and return its embedding
 
-llm = init_chat_model(
-    model = "meta-llama/Meta-Llama-3.1-8B-Instruct",
-    model_provider = "openai",
-    api_key = "empty",
-    base_url = "http://host.docker.internal:8111/v1", # "http://localhost:8111/v1",
-    temperature = 0.2,
-    max_tokens = 700,
-)
+# Initialize the LLM
+def init_llm():
+    return init_chat_model(
+        model="meta-llama/Meta-Llama-3.1-8B-Instruct",
+        model_provider="openai",
+        api_key="empty",
+        base_url="http://host.docker.internal:8111/v1",
+        temperature=0.2,
+        max_tokens=700,
+    )
+    
+llm = init_llm()
 embeddings = InferenceAPIEmbeddings()
 
 os.environ["NEO4J_URI"] = "bolt://host.docker.internal:7300"
@@ -61,23 +69,31 @@ os.environ["NEO4J_USERNAME"] = "neo4j"
 os.environ["NEO4J_PASSWORD"] = "password"
 
 enhanced_graph = Neo4jGraph(enhanced_schema=True)
-#print(enhanced_graph.schema)
+
+# ------------------------------------------------------------------------------------
+# STATE DEFINITIONS
+# ------------------------------------------------------------------------------------
 
 class InputState(TypedDict):
-    question: str
+    messages: List[BaseMessage]
 
 class OverallState(TypedDict):
-    question: str
+    messages: List[BaseMessage]
     next_action: str
     cypher_statement: str
     cypher_errors: List[str]
     database_records: List[dict]
     steps: Annotated[List[str], add]
+    semantic_entities: List[Dict[str, str]] # e.g. [{"candidate": "Adria Molina", "label": "Person"}, ...]
 
 class OutputState(TypedDict):
     answer: str
     steps: List[str]
     cypher_statement: str
+    
+# ------------------------------------------------------------------------------------
+# GUARDRAILS NODE
+# ------------------------------------------------------------------------------------
 
 # Updated system prompt for academic guidance
 guardrails_system = """
@@ -93,14 +109,8 @@ Provide only the specified output: "academic" or "end".
 
 guardrails_prompt = ChatPromptTemplate.from_messages(
     [
-        (
-            "system",
-            guardrails_system,
-        ),
-        (
-            "human",
-            ("{question}"),
-        ),
+        ("system",guardrails_system),
+        ("human",("{question}")),
     ]
 )
 
@@ -117,7 +127,7 @@ def guardrails(state: InputState) -> OverallState:
     """
     Decides if the question is related to academic research guidance or not.
     """
-    guardrails_output = guardrails_chain.invoke({"question": state.get("question")})
+    guardrails_output = guardrails_chain.invoke({"question": state.get("messages")[0].content})
     database_records = None
     if guardrails_output.decision == "end":
         database_records = "This question is not related to academic research guidance. Therefore, I cannot answer this question."
@@ -126,43 +136,101 @@ def guardrails(state: InputState) -> OverallState:
         "next_action": guardrails_output.decision,
         "database_records": database_records,
         "steps": ["guardrail"],
+        "semantic_entities": [],
     }
+
+# ------------------------------------------------------------------------------------
+# EXAMPLES + TEXT2CYPHER NODE
+# ------------------------------------------------------------------------------------
 
 examples = [
     {
         "question": "How many TFG projects are there in the Engineering faculty?",
-        "query": "MATCH (t:TFG) WHERE toLower(t.faculty) CONTAINS toLower('Engineering') RETURN count(t) AS totalTFGs",
+        "query": """
+            MATCH (t:TFG)
+            WHERE toLower(t.faculty) CONTAINS toLower('Engineering')
+            RETURN count(t) AS totalTFGs
+        """
     },
     {
         "question": "List all TFG projects related to the keyword 'green space'.",
-        "query": "MATCH (t:TFG)-[:HAS]->(k:Keyword) WHERE toLower(k.keyword) CONTAINS toLower('green space') RETURN t.title, t.year",
+        "query": """
+            MATCH (t:TFG)-[:CONTAINS_KEYWORD]->(k:Keyword)
+            WHERE toLower(k.keyword) CONTAINS toLower('green space')
+            OPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)
+            OPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)
+            RETURN t.title AS title, t.year AS year, t.abstract AS abstract,
+                   t.bachelor AS bachelor, t.faculty AS faculty, t.link AS link,
+                   collect(DISTINCT s.name) AS students,
+                   collect(DISTINCT i.name) AS investigators
+        """
     },
     {
         "question": "Which investigator has supervised the most TFG projects?",
-        "query": "MATCH (i:Investigator)-[:DO]->(t:TFG) RETURN i.name, count(t) AS tfgCount ORDER BY tfgCount DESC LIMIT 1",
+        "query": """
+            MATCH (i:Person:Investigator)-[:SUPERVISES]->(t:TFG)
+            WITH i, count(t) AS tfgCount, collect(t.title) AS projects
+            RETURN i.name AS investigator, tfgCount, projects
+            ORDER BY tfgCount DESC
+            LIMIT 1
+        """
     },
     {
         "question": "Find all publications by investigator 'cristina domingo-marimon'.",
-        "query": "MATCH (i:Investigator)-[:DO]->(p:Publication) WHERE toLower(i.name) CONTAINS toLower('cristina domingo-marimon') RETURN p.title, p.type, p.year",
+        "query": """
+            MATCH (i:Person:Investigator)-[:WRITES]->(p:Publication)
+            WHERE toLower(i.name) CONTAINS toLower('cristina domingo-marimon')
+            OPTIONAL MATCH (a:Person:Investigator)-[:WRITES]->(p)
+            RETURN p.title AS title, p.type AS type, p.year AS year, 
+                   p.abstract AS abstract, p.link AS link, p.doi AS doi, p.publication AS publication,
+                   collect(DISTINCT a.name) AS authors
+        """
     },
     {
         "question": "List all students who completed a TFG under investigator 'cristina domingo-marimon'.",
-        "query": "MATCH (i:Investigator)-[:DO]->(t:TFG)<-[:DO]-(s:Student) WHERE toLower(i.name) CONTAINS toLower('cristina domingo-marimon') RETURN s.name, t.title",
+        "query": """
+            MATCH (i:Person:Investigator)-[:SUPERVISES]->(t:TFG)<-[:WRITES]-(s:Person:Student)
+            WHERE toLower(i.name) CONTAINS toLower('cristina domingo-marimon')
+            RETURN s.name AS student, t.title AS title, t.year AS year,
+                   t.abstract AS abstract, t.link AS link
+        """
     },
     {
         "question": "Which TFG projects were completed in 2023?",
-        "query": "MATCH (t:TFG) WHERE t.year = '2023' RETURN t.title, t.abstract",
+        "query": """
+            MATCH (t:TFG)
+            WHERE t.year = '2023'
+            OPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)
+            OPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)
+            RETURN t.title AS title, t.year AS year, t.abstract AS abstract,
+                   t.bachelor AS bachelor, t.faculty AS faculty, t.link AS link,
+                   collect(DISTINCT s.name) AS students,
+                   collect(DISTINCT i.name) AS investigators
+        """
     },
     {
         "question": "Find all TFG projects under the bachelor 'Smart and Sustainable Cities Management'.",
-        "query": "MATCH (t:TFG) WHERE toLower(t.bachelor) CONTAINS toLower('Smart and Sustainable Cities Management') RETURN t.title, t.year",
+        "query": """
+            MATCH (t:TFG)
+            WHERE toLower(t.bachelor) CONTAINS toLower('Smart and Sustainable Cities Management')
+            OPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)
+            OPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)
+            RETURN t.title AS title, t.year AS year, t.abstract AS abstract, t.link AS link,
+                   collect(DISTINCT s.name) AS students,
+                   collect(DISTINCT i.name) AS investigators
+        """
     },
     {
         "question": "Identify the most common keywords in TFG projects from the Science faculty.",
-        "query": "MATCH (t:TFG)-[:HAS]->(k:Keyword) WHERE toLower(t.faculty) CONTAINS toLower('Science') RETURN k.keyword, count(*) AS frequency ORDER BY frequency DESC",
-    },
+        "query": """
+            MATCH (t:TFG)-[:CONTAINS_KEYWORD]->(k:Keyword)
+            WHERE toLower(t.faculty) CONTAINS toLower('Science')
+            WITH k, count(*) AS frequency, collect(t.title) AS projects
+            RETURN k.keyword AS keyword, frequency, projects
+            ORDER BY frequency DESC
+        """
+    }
 ]
-
 
 example_selector = SemanticSimilarityExampleSelector.from_examples(
     examples, embeddings, Neo4jVector, k=5, input_keys=["question"]
@@ -190,7 +258,10 @@ Below are a number of examples of questions and their corresponding Cypher queri
 
 {fewshot_examples}
 
-User input: {question}
+User input (that needs to be solved): {question}
+
+Past history (that might help to formulate the query): {history}
+
 Cypher query:"""
             ),
         ),
@@ -198,6 +269,10 @@ Cypher query:"""
 )
 
 text2cypher_chain = text2cypher_prompt | llm | StrOutputParser()
+
+# ------------------------------------------------------------------------------------
+# GENERATE CYPHER
+# ------------------------------------------------------------------------------------
 
 def generate_cypher(state: OverallState) -> OverallState:
     """
@@ -208,18 +283,24 @@ def generate_cypher(state: OverallState) -> OverallState:
         [
             f"Question: {el['question']}{NL}Cypher:{el['query']}"
             for el in example_selector.select_examples(
-                {"question": state.get("question")}
+                {"question": state.get("messages")[0].content}
             )
         ]
     )
+    history = "\n".join([(message.type + ": " + message.content) for message in state.get("messages")[1:]])
     generated_cypher = text2cypher_chain.invoke(
         {
-            "question": state.get("question"),
+            "question": state.get("messages")[0].content,
+            "history": history,
             "fewshot_examples": fewshot_examples,
             "schema": enhanced_graph.schema,
         }
     )
     return {"cypher_statement": generated_cypher, "steps": ["generate_cypher"]}
+
+# ------------------------------------------------------------------------------------
+# EXECUTE CYPHER
+# ------------------------------------------------------------------------------------
 
 no_results = "I couldn't find any relevant information in the database"
 
@@ -235,6 +316,10 @@ def execute_cypher(state: OverallState) -> OverallState:
         "steps": ["execute_cypher"],
     }
 
+# ------------------------------------------------------------------------------------
+# GENERATE FINAL ANSWER
+# ------------------------------------------------------------------------------------
+
 generate_final_prompt = ChatPromptTemplate.from_messages(
     [
         (
@@ -245,7 +330,7 @@ and CVC scientific publications. The CVC is a non-profit research center establi
 by the Generalitat de Catalunya and the UAB, focusing on computer vision research 
 and collaborating on TFGs.
 
-This tool is designed for students seeking academic guidance on TFGs and publications, be kind and helpful.
+This tool is designed for students seeking academic guidance on TFGs and publications. Overall you are a chatbot agent be kind and helpful.
 
 - Only show relevant documents if found; otherwise, answer directly.
 - By default, return only the top 5 results (unless the user requests more).
@@ -262,6 +347,7 @@ to the user's question. Respond as if you are answering the question directly.
 
 Question: {question}
 Results: {results}
+Past history: {history}
             """,
         ),
     ]
@@ -274,13 +360,21 @@ def generate_final_answer(state: OverallState) -> OutputState:
     Generates the final answer, returning relevant documents if they exist,
     or a direct response if none are found or needed.
     """
+    history = "\n".join([(message.type + ": " + message.content) for message in state.get("messages")[1:]])
     final_answer = generate_final_chain.invoke(
         {
-            "question": state.get("question"),
+            "question": state.get("messages")[0].content,
             "results": state.get("database_records"),
+            "history": history,
         }
     )
-    return {"answer": final_answer, "steps": ["generate_final_answer"]}
+    return {"answer": final_answer,
+            "steps": ["generate_final_answer"],
+            "cypher_statement": state.get("cypher_statement")}
+
+# ------------------------------------------------------------------------------------
+# STATEGRAPH
+# ------------------------------------------------------------------------------------
 
 def guardrails_condition(
     state: OverallState,
@@ -297,16 +391,16 @@ langgraph.add_node(execute_cypher)
 langgraph.add_node(generate_final_answer)
 
 langgraph.add_edge(START, "guardrails")
-langgraph.add_conditional_edges(
-    "guardrails",
-    guardrails_condition,
-)
+langgraph.add_conditional_edges("guardrails",guardrails_condition,)
 langgraph.add_edge("generate_cypher", "execute_cypher")
 langgraph.add_edge("execute_cypher", "generate_final_answer")
 langgraph.add_edge("generate_final_answer", END)
 
 graph = langgraph.compile()
 
+# ------------------------------------------------------------------------------------
+# MAIN STREAMLIT APP
+# ------------------------------------------------------------------------------------
 
 def main():
     # Initialize chat history in session state if not already present
@@ -345,7 +439,7 @@ def main():
             nonlocal complete_response
             # Pass the full conversation history into the pipeline
             for message, metadata in graph.stream(
-                {"question": user_input},
+                {"messages": pipeline_messages},
                 stream_mode="messages",
                 config=config
             ):
