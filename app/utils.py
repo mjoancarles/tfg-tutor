@@ -59,3 +59,15 @@ def check_connections():
     except ConnectionError as e:
         st.error(str(e))
         return
+
+def format_semantic_entities(semantic_entities: dict) -> str:
+    if not semantic_entities:
+        return ""
+    formatted_parts = []
+    for entity_type, results in semantic_entities.items():
+        if results:
+            candidates = ", ".join(
+                [f"{item['candidate']} ({item['score']:.2f})" for item in results]
+            )
+            formatted_parts.append(f"{entity_type}: {candidates}")
+    return "; ".join(formatted_parts)

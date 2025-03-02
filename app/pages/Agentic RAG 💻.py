@@ -13,9 +13,14 @@ from pydantic import BaseModel, Field
 from langchain_core.example_selectors import SemanticSimilarityExampleSelector
 from langgraph.graph import END, START, StateGraph
 from langchain_core.output_parsers import StrOutputParser
+from unidecode import unidecode
+from neo4j import GraphDatabase
+from utils import *
+import logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # ------------------------------------------------------------------------------------
-# STREAMLIT / LANGCHAIN SETUP
+# STREAMLIT / LANGCHAIN / NEO4J SETUP 
 # ------------------------------------------------------------------------------------
 
 st.set_page_config(
@@ -70,6 +75,10 @@ os.environ["NEO4J_PASSWORD"] = "password"
 
 enhanced_graph = Neo4jGraph(enhanced_schema=True)
 
+AUTH = (os.environ["NEO4J_USERNAME"], os.environ["NEO4J_PASSWORD"])
+neo4j_driver = GraphDatabase.driver(os.environ["NEO4J_URI"], auth=AUTH)
+neo4j_session = neo4j_driver.session(database="neo4j")
+
 # ------------------------------------------------------------------------------------
 # STATE DEFINITIONS
 # ------------------------------------------------------------------------------------
@@ -102,8 +111,10 @@ If the question is relevant to this topic, output "academic". Otherwise, output 
 To make this decision, assess the content of the question and determine if it refers to:
 - Searching for relevant TFGs, academic publications, or keywords.
 - Finding potential tutors or researchers based on their previous work.
+- Finding information about possible researchers and their publications.
 - Identifying academic connections between students, investigators, publications, and keywords.
 - Requesting insights into specific research topics or fields of study.
+In case of doubt, redirect to the academic guidance path always.
 Provide only the specified output: "academic" or "end".
 """
 
@@ -127,6 +138,7 @@ def guardrails(state: InputState) -> OverallState:
     """
     Decides if the question is related to academic research guidance or not.
     """
+    logging.info("Guardrails node")
     guardrails_output = guardrails_chain.invoke({"question": state.get("messages")[0].content})
     database_records = None
     if guardrails_output.decision == "end":
@@ -137,6 +149,61 @@ def guardrails(state: InputState) -> OverallState:
         "database_records": database_records,
         "steps": ["guardrail"],
         "semantic_entities": [],
+    }
+
+# ------------------------------------------------------------------------------------
+# SEMANTIC LAYER NODE
+# ------------------------------------------------------------------------------------
+def semantic_layer(state: OverallState) -> OverallState:
+    """
+    Extracts semantic entities from the user's question.
+    """
+    logging.info("Semantic Layer node")
+    user_query = unidecode(state.get("messages")[0].content)
+    query_vector = embeddings.embed_query(user_query)
+    semantic_entities = {}
+     
+    # Query top 5 TFG candidates based on abstract embeddings
+    result_tfg = neo4j_session.run("""
+        CALL db.index.vector.queryNodes('tfgAbstractIndex', 5, $v)
+        YIELD node, score
+        RETURN node.title AS candidate, score
+        ORDER BY score DESC
+    """, v=query_vector).data()
+    semantic_entities["TFG"] = result_tfg
+    
+    # Query top 5 Publication candidates based on abstract embeddings
+    result_pub = neo4j_session.run("""
+        CALL db.index.vector.queryNodes('pubAbstractIndex', 5, $v)
+        YIELD node, score
+        RETURN node.title AS candidate, score
+        ORDER BY score DESC
+    """, v=query_vector).data()
+    semantic_entities["Publication"] = result_pub
+    
+    # Query top 5 Keyword candidates based on keyword embeddings
+    result_kw = neo4j_session.run("""
+        CALL db.index.vector.queryNodes('keywordNameIndex', 5, $v)
+        YIELD node, score
+        RETURN node.keyword AS candidate, score
+        ORDER BY score DESC
+    """, v=query_vector).data()
+    semantic_entities["Keyword"] = result_kw
+    
+    # For Person, using a full-text index
+    result_person = neo4j_session.run("""
+        CALL db.index.fulltext.queryNodes("personNames", $q) YIELD node, score
+        RETURN node.name AS candidate, score
+        ORDER BY score DESC
+        LIMIT 5
+    """, q=user_query).data()
+    semantic_entities["Person"] = result_person
+    
+    logging.info(f"Semantic entities: {semantic_entities}")
+    
+    return {
+        "steps": ["semantic_layer"],
+        "semantic_entities": semantic_entities,
     }
 
 # ------------------------------------------------------------------------------------
@@ -251,16 +318,26 @@ text2cypher_prompt = ChatPromptTemplate.from_messages(
                 """You are a Neo4j expert. Given an input question, create a syntactically correct Cypher query to run.
 Do not wrap the response in any backticks or anything else. Respond with a Cypher statement only!
 If named entities do not use spetial characters like à, è, ò, etc. use the regular characters a, e, o, etc when writing the Cypher query.
-Here is the schema information
+Here is the graph schema information:
 {schema}
 
 Below are a number of examples of questions and their corresponding Cypher queries.
 
 {fewshot_examples}
 
-User input (that needs to be solved): {question}
+User input (that needs to be solved):
+{question}
 
-Past history (that might help to formulate the query): {history}
+These are the semantic entities extracted from the user's question (that will help to identify how neo4j graph nodes are named in reality).
+Please only use the entities that are relevant to the user's question, if asked only for a person, do not use keywords or publications nodes for instance!
+When asked for relevant TFGs or Publications please try using keywords but also real names of extracted works, so that if one query fails the other might still return results.
+{semantic_entities}
+
+Past history (that might help to formulate the query, only include if relevant):
+{history}
+
+Try including optional matches in the query to retrieve additional information if available.
+When asked just about publications do not include TFGs in the query and vice versa.
 
 Cypher query:"""
             ),
@@ -278,6 +355,7 @@ def generate_cypher(state: OverallState) -> OverallState:
     """
     Generates a cypher statement based on the provided schema and user input
     """
+    logging.info("Generate Cypher node")
     NL = "\n"
     fewshot_examples = (NL * 2).join(
         [
@@ -288,14 +366,17 @@ def generate_cypher(state: OverallState) -> OverallState:
         ]
     )
     history = "\n".join([(message.type + ": " + message.content) for message in state.get("messages")[1:]])
+    semantic_context = format_semantic_entities(state.get("semantic_entities"))
     generated_cypher = text2cypher_chain.invoke(
         {
             "question": state.get("messages")[0].content,
             "history": history,
+            "semantic_entities": semantic_context,
             "fewshot_examples": fewshot_examples,
             "schema": enhanced_graph.schema,
         }
     )
+    logging.info(f"Generated Cypher: {generated_cypher}")
     return {"cypher_statement": generated_cypher, "steps": ["generate_cypher"]}
 
 # ------------------------------------------------------------------------------------
@@ -308,7 +389,7 @@ def execute_cypher(state: OverallState) -> OverallState:
     """
     Executes the given Cypher statement.
     """
-
+    logging.info("Execute Cypher node")
     records = enhanced_graph.query(state.get("cypher_statement"))
     return {
         "database_records": records if records else no_results,
@@ -330,7 +411,7 @@ and CVC scientific publications. The CVC is a non-profit research center establi
 by the Generalitat de Catalunya and the UAB, focusing on computer vision research 
 and collaborating on TFGs.
 
-This tool is designed for students seeking academic guidance on TFGs and publications. Overall you are a chatbot agent be kind and helpful.
+Your role is to help students seeking academic guidance on TFGs and publications.
 
 - Only show relevant documents if found; otherwise, answer directly.
 - By default, return only the top 5 results (unless the user requests more).
@@ -342,12 +423,20 @@ This tool is designed for students seeking academic guidance on TFGs and publica
         (
             "human",
             """
-Use the following results retrieved from a database to provide a succinct, definitive answer 
-to the user's question. Respond as if you are answering the question directly.
+Given the user's question, retrieved results from the neo4j database, and the chat history,
+please generate a final response for the user.
 
-Question: {question}
-Results: {results}
-Past history: {history}
+Question:
+{question}
+
+Neo4j query results:
+{results}
+
+First initially extracted semantic entities (only to be used in case of no results, focusing just on the relevant entities to answer the user question):
+{semantic_entities}
+
+Past history:
+{history}
             """,
         ),
     ]
@@ -360,11 +449,14 @@ def generate_final_answer(state: OverallState) -> OutputState:
     Generates the final answer, returning relevant documents if they exist,
     or a direct response if none are found or needed.
     """
+    logging.info("Generate Final Answer node")
     history = "\n".join([(message.type + ": " + message.content) for message in state.get("messages")[1:]])
+    semantic_context = format_semantic_entities(state.get("semantic_entities"))
     final_answer = generate_final_chain.invoke(
         {
             "question": state.get("messages")[0].content,
             "results": state.get("database_records"),
+            "semantic_entities": semantic_context,
             "history": history,
         }
     )
@@ -378,20 +470,22 @@ def generate_final_answer(state: OverallState) -> OutputState:
 
 def guardrails_condition(
     state: OverallState,
-) -> Literal["generate_cypher", "generate_final_answer"]:
+) -> Literal["semantic_layer", "generate_final_answer"]:
     if state.get("next_action") == "end":
         return "generate_final_answer"
     elif state.get("next_action") == "academic":
-        return "generate_cypher"
+        return "semantic_layer"
 
 langgraph = StateGraph(OverallState, input=InputState, output=OutputState)
 langgraph.add_node(guardrails)
+langgraph.add_node(semantic_layer)
 langgraph.add_node(generate_cypher)
 langgraph.add_node(execute_cypher)
 langgraph.add_node(generate_final_answer)
 
 langgraph.add_edge(START, "guardrails")
 langgraph.add_conditional_edges("guardrails",guardrails_condition,)
+langgraph.add_edge("semantic_layer", "generate_cypher")
 langgraph.add_edge("generate_cypher", "execute_cypher")
 langgraph.add_edge("execute_cypher", "generate_final_answer")
 langgraph.add_edge("generate_final_answer", END)
