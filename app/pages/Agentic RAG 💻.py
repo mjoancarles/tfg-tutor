@@ -4,6 +4,7 @@ from langchain_neo4j import Neo4jGraph, Neo4jVector
 import requests
 from langchain.embeddings.base import Embeddings
 import os
+import json
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 from operator import add
 from typing_extensions import TypedDict
@@ -15,6 +16,8 @@ from langgraph.graph import END, START, StateGraph
 from langchain_core.output_parsers import StrOutputParser
 from unidecode import unidecode
 from neo4j import GraphDatabase
+from neo4j.exceptions import CypherSyntaxError
+from langchain_neo4j.chains.graph_qa.cypher_utils import CypherQueryCorrector, Schema
 from utils import *
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -91,6 +94,7 @@ class OverallState(TypedDict):
     next_action: str
     cypher_statement: str
     cypher_errors: List[str]
+    number_of_corrections: int
     database_records: List[dict]
     steps: Annotated[List[str], add]
     semantic_entities: List[Dict[str, str]] # e.g. [{"candidate": "Adria Molina", "label": "Person"}, ...]
@@ -112,6 +116,7 @@ To make this decision, assess the content of the question and determine if it re
 - Searching for relevant TFGs, academic publications, or keywords.
 - Finding potential tutors or researchers based on their previous work.
 - Finding information about possible researchers and their publications.
+- Finding about someone's information, because they are a potential tutor.
 - Identifying academic connections between students, investigators, publications, and keywords.
 - Requesting insights into specific research topics or fields of study.
 In case of doubt, redirect to the academic guidance path always.
@@ -163,7 +168,7 @@ def semantic_layer(state: OverallState) -> OverallState:
     query_vector = embeddings.embed_query(user_query)
     semantic_entities = {}
      
-    # Query top 5 TFG candidates based on abstract embeddings
+    _ = '''# Query top 5 TFG candidates based on abstract embeddings
     result_tfg = neo4j_session.run("""
         CALL db.index.vector.queryNodes('tfgAbstractIndex', 5, $v)
         YIELD node, score
@@ -179,11 +184,11 @@ def semantic_layer(state: OverallState) -> OverallState:
         RETURN node.title AS candidate, score
         ORDER BY score DESC
     """, v=query_vector).data()
-    semantic_entities["Publication"] = result_pub
+    semantic_entities["Publication"] = result_pub'''
     
     # Query top 5 Keyword candidates based on keyword embeddings
     result_kw = neo4j_session.run("""
-        CALL db.index.vector.queryNodes('keywordNameIndex', 5, $v)
+        CALL db.index.vector.queryNodes('keywordNameIndex', 6, $v)
         YIELD node, score
         RETURN node.keyword AS candidate, score
         ORDER BY score DESC
@@ -195,7 +200,7 @@ def semantic_layer(state: OverallState) -> OverallState:
         CALL db.index.fulltext.queryNodes("personNames", $q) YIELD node, score
         RETURN node.name AS candidate, score
         ORDER BY score DESC
-        LIMIT 5
+        LIMIT 6
     """, q=user_query).data()
     semantic_entities["Person"] = result_person
     
@@ -210,94 +215,16 @@ def semantic_layer(state: OverallState) -> OverallState:
 # EXAMPLES + TEXT2CYPHER NODE
 # ------------------------------------------------------------------------------------
 
-examples = [
-    {
-        "question": "How many TFG projects are there in the Engineering faculty?",
-        "query": """
-            MATCH (t:TFG)
-            WHERE toLower(t.faculty) CONTAINS toLower('Engineering')
-            RETURN count(t) AS totalTFGs
-        """
-    },
-    {
-        "question": "List all TFG projects related to the keyword 'green space'.",
-        "query": """
-            MATCH (t:TFG)-[:CONTAINS_KEYWORD]->(k:Keyword)
-            WHERE toLower(k.keyword) CONTAINS toLower('green space')
-            OPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)
-            OPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)
-            RETURN t.title AS title, t.year AS year, t.abstract AS abstract,
-                   t.bachelor AS bachelor, t.faculty AS faculty, t.link AS link,
-                   collect(DISTINCT s.name) AS students,
-                   collect(DISTINCT i.name) AS investigators
-        """
-    },
-    {
-        "question": "Which investigator has supervised the most TFG projects?",
-        "query": """
-            MATCH (i:Person:Investigator)-[:SUPERVISES]->(t:TFG)
-            WITH i, count(t) AS tfgCount, collect(t.title) AS projects
-            RETURN i.name AS investigator, tfgCount, projects
-            ORDER BY tfgCount DESC
-            LIMIT 1
-        """
-    },
-    {
-        "question": "Find all publications by investigator 'cristina domingo-marimon'.",
-        "query": """
-            MATCH (i:Person:Investigator)-[:WRITES]->(p:Publication)
-            WHERE toLower(i.name) CONTAINS toLower('cristina domingo-marimon')
-            OPTIONAL MATCH (a:Person:Investigator)-[:WRITES]->(p)
-            RETURN p.title AS title, p.type AS type, p.year AS year, 
-                   p.abstract AS abstract, p.link AS link, p.doi AS doi, p.publication AS publication,
-                   collect(DISTINCT a.name) AS authors
-        """
-    },
-    {
-        "question": "List all students who completed a TFG under investigator 'cristina domingo-marimon'.",
-        "query": """
-            MATCH (i:Person:Investigator)-[:SUPERVISES]->(t:TFG)<-[:WRITES]-(s:Person:Student)
-            WHERE toLower(i.name) CONTAINS toLower('cristina domingo-marimon')
-            RETURN s.name AS student, t.title AS title, t.year AS year,
-                   t.abstract AS abstract, t.link AS link
-        """
-    },
-    {
-        "question": "Which TFG projects were completed in 2023?",
-        "query": """
-            MATCH (t:TFG)
-            WHERE t.year = '2023'
-            OPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)
-            OPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)
-            RETURN t.title AS title, t.year AS year, t.abstract AS abstract,
-                   t.bachelor AS bachelor, t.faculty AS faculty, t.link AS link,
-                   collect(DISTINCT s.name) AS students,
-                   collect(DISTINCT i.name) AS investigators
-        """
-    },
-    {
-        "question": "Find all TFG projects under the bachelor 'Smart and Sustainable Cities Management'.",
-        "query": """
-            MATCH (t:TFG)
-            WHERE toLower(t.bachelor) CONTAINS toLower('Smart and Sustainable Cities Management')
-            OPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)
-            OPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)
-            RETURN t.title AS title, t.year AS year, t.abstract AS abstract, t.link AS link,
-                   collect(DISTINCT s.name) AS students,
-                   collect(DISTINCT i.name) AS investigators
-        """
-    },
-    {
-        "question": "Identify the most common keywords in TFG projects from the Science faculty.",
-        "query": """
-            MATCH (t:TFG)-[:CONTAINS_KEYWORD]->(k:Keyword)
-            WHERE toLower(t.faculty) CONTAINS toLower('Science')
-            WITH k, count(*) AS frequency, collect(t.title) AS projects
-            RETURN k.keyword AS keyword, frequency, projects
-            ORDER BY frequency DESC
-        """
-    }
-]
+# Get the absolute path of the current script
+script_dir = os.path.dirname(__file__)  # This is /app/pages
+
+# Construct the path to query_examples.json (which is at /app)
+json_path = os.path.join(script_dir, "..", "query_examples.json")
+
+with open(json_path, "r", encoding="utf-8") as f:
+    data = json.load(f)
+
+examples = data["examples"]
 
 example_selector = SemanticSimilarityExampleSelector.from_examples(
     examples, embeddings, Neo4jVector, k=5, input_keys=["question"]
@@ -308,36 +235,25 @@ text2cypher_prompt = ChatPromptTemplate.from_messages(
         (
             "system",
             (
-                "Given an input question, convert it to a Cypher query. No pre-amble."
-                "Do not wrap the response in any backticks or anything else. Respond with a Cypher statement only!"
+                """Given an input question, convert it to a Cypher query. Avoid Cartesian products by ensuring that all MATCH statements are logically connected. Use OPTIONAL MATCH only when necessary, and avoid unnecessary duplicate entity retrieval. Ensure that queries retrieve only the required entities without creating excessive joins. Respond with a Cypher statement only, without any additional formatting or commentary."""
             ),
         ),
         (
             "human",
             (
-                """You are a Neo4j expert. Given an input question, create a syntactically correct Cypher query to run.
-Do not wrap the response in any backticks or anything else. Respond with a Cypher statement only!
-If named entities do not use spetial characters like à, è, ò, etc. use the regular characters a, e, o, etc when writing the Cypher query.
-Here is the graph schema information:
-{schema}
+                """You are a Neo4j expert. Given an input question, create a syntactically correct Cypher query to run. Do not wrap the response in any backticks or anything else. Respond with a Cypher statement only! Avoid Cartesian products by ensuring that nodes are connected logically. For example, if retrieving publications and their authors, ensure that they are linked via relationships. Use OPTIONAL MATCH sparingly and only where relationships might not exist. If named entities do not use special characters like à, è, ò, etc., use the regular characters a, e, o, etc., when writing the Cypher query. Here is the graph schema information: {schema}
 
-Below are a number of examples of questions and their corresponding Cypher queries.
+Below are a number of examples of questions and their corresponding Cypher queries: {fewshot_examples}
 
-{fewshot_examples}
+User input (that MUST be solved): {question}
 
-User input (that needs to be solved):
-{question}
+If asked for who might supervise a TFG related to X, please use keywords and try finding the authors that did publications that conatins them, for instance.
 
-These are the semantic entities extracted from the user's question (that will help to identify how neo4j graph nodes are named in reality).
-Please only use the entities that are relevant to the user's question, if asked only for a person, do not use keywords or publications nodes for instance!
-When asked for relevant TFGs or Publications please try using keywords but also real names of extracted works, so that if one query fails the other might still return results.
-{semantic_entities}
+These are the semantic entities extracted from the user's question just by using embeddings. Use those author and keyword names to create the Cypher query whenever needed. Please only use the entities that are relevant to the user's question; if the question asks only for a person, do not include keywords. {semantic_entities}
 
-Past history (that might help to formulate the query, only include if relevant):
-{history}
+Past chat history, only to be used if relevant to the user query; if not, please ignore: {history}
 
-Try including optional matches in the query to retrieve additional information if available.
-When asked just about publications do not include TFGs in the query and vice versa.
+Try including OPTIONAL MATCH in the query to retrieve additional information if available. When asked about publications only, do not include TFGs in the query and vice versa.
 
 Cypher query:"""
             ),
@@ -378,6 +294,126 @@ def generate_cypher(state: OverallState) -> OverallState:
     )
     logging.info(f"Generated Cypher: {generated_cypher}")
     return {"cypher_statement": generated_cypher, "steps": ["generate_cypher"]}
+
+# ------------------------------------------------------------------------------------
+# QUERY VALIDATION
+# ------------------------------------------------------------------------------------
+
+# Cypher query corrector is experimental
+corrector_schema = [
+    Schema(el["start"], el["type"], el["end"])
+    for el in enhanced_graph.structured_schema.get("relationships")
+]
+cypher_query_corrector = CypherQueryCorrector(corrector_schema)
+
+def validate_cypher(state: OverallState) -> OverallState:
+    """
+    Simplified validation: Use EXPLAIN to catch syntax errors and fix relationship directions.
+    If an error is detected, set next_action to "correct_cypher"; otherwise, proceed to execution.
+    """
+    errors = []
+    
+    # Check for syntax errors using EXPLAIN to catch CypherSyntaxError exceptions
+    try:
+        enhanced_graph.query(f"EXPLAIN {state.get('cypher_statement')}")
+    except CypherSyntaxError as e:
+        logging.error(f"Syntax error: {e}")
+        errors.append(e.message)
+    
+    # Correct relationship directions if necessary
+    corrected_cypher = cypher_query_corrector(state.get("cypher_statement"))
+    if not corrected_cypher:
+        errors.append("The generated Cypher statement doesn't fit the graph schema")
+    if corrected_cypher != state.get("cypher_statement"):
+        print("Relationship direction was corrected")
+        
+    corrections = state.get("number_of_corrections", 0) + 1
+    
+    # Decide next action based on errors
+    if corrections > 3:
+        next_action = "execute_cypher"
+    else:
+        next_action = "correct_cypher" if errors else "execute_cypher"
+    
+    return {
+        "next_action": next_action,
+        "number_of_corrections": corrections,
+        "cypher_statement": corrected_cypher,
+        "cypher_errors": errors,
+        "steps": ["validate_cypher"],
+    }
+
+# ------------------------------------------------------------------------------------
+# CORRECT CYPHER QUERY
+# ------------------------------------------------------------------------------------
+    
+correct_cypher_prompt = ChatPromptTemplate.from_messages(
+    [
+        (
+            "system",
+            (
+                "You are a Cypher expert reviewing a statement written by a junior developer. "
+                "Your task is to correct the Cypher statement based on the provided errors. "
+                "Do not include any preamble, explanations, or apologies. "
+                "Respond with a Cypher statement only, without any backticks or additional formatting."
+            ),
+        ),
+        (
+            "human",
+            (
+                """Check for invalid syntax or semantics and return a corrected Cypher statement.
+
+Schema:
+{schema}
+
+Note: The corrected Cypher query MUST be different from the original query and must fix the mentioned error. 
+Do not include any explanations or commentary.
+Do not respond to any requests other than constructing a Cypher statement.
+
+The question is:
+{question}
+
+Past chat history (only to be considered if relevant):
+{history}
+
+The Cypher statement is:
+{cypher}
+
+The errors are:
+{errors}
+
+Corrected Cypher statement: """
+            ),
+        ),
+    ]
+)
+
+correct_cypher_chain = correct_cypher_prompt | llm | StrOutputParser()
+
+
+def correct_cypher(state: OverallState) -> OverallState:
+    """
+    Correct the Cypher statement based on the provided errors.
+    """
+    history = "\n".join([(message.type + ": " + message.content) for message in state.get("messages")[1:]])
+    question = state.get("messages")[0].content
+    corrected_cypher = correct_cypher_chain.invoke(
+        {
+            "question": question,
+            "history": history,
+            "errors": state.get("cypher_errors"),
+            "cypher": state.get("cypher_statement"),
+            "schema": enhanced_graph.schema,
+        }
+    )
+    
+    logging.info(f"Corrected Cypher: {corrected_cypher}")
+    
+    return {
+        "next_action": "validate_cypher",
+        "cypher_statement": corrected_cypher,
+        "steps": ["correct_cypher"],
+    }
 
 # ------------------------------------------------------------------------------------
 # EXECUTE CYPHER
@@ -432,7 +468,7 @@ Question:
 Neo4j query results:
 {results}
 
-First initially extracted semantic entities (only to be used in case of no results, focusing just on the relevant entities to answer the user question):
+First initially extracted semantic entities (only to be used in case of no results, and if relevant to the user query, if not please ignore: for instance if asking for a person, do not include retrieved keywords or publications):
 {semantic_entities}
 
 Past history:
@@ -468,6 +504,8 @@ def generate_final_answer(state: OverallState) -> OutputState:
 # STATEGRAPH
 # ------------------------------------------------------------------------------------
 
+# From https://python.langchain.com/docs/tutorials/graph/
+
 def guardrails_condition(
     state: OverallState,
 ) -> Literal["semantic_layer", "generate_final_answer"]:
@@ -476,18 +514,32 @@ def guardrails_condition(
     elif state.get("next_action") == "academic":
         return "semantic_layer"
 
+def validate_cypher_condition(
+    state: OverallState,
+) -> Literal["generate_final_answer", "correct_cypher", "execute_cypher"]:
+    if state.get("next_action") == "end":
+        return "generate_final_answer"
+    elif state.get("next_action") == "correct_cypher":
+        return "correct_cypher"
+    elif state.get("next_action") == "execute_cypher":
+        return "execute_cypher"
+
 langgraph = StateGraph(OverallState, input=InputState, output=OutputState)
 langgraph.add_node(guardrails)
 langgraph.add_node(semantic_layer)
 langgraph.add_node(generate_cypher)
+langgraph.add_node(validate_cypher)
+langgraph.add_node(correct_cypher)
 langgraph.add_node(execute_cypher)
 langgraph.add_node(generate_final_answer)
 
 langgraph.add_edge(START, "guardrails")
 langgraph.add_conditional_edges("guardrails",guardrails_condition,)
+langgraph.add_edge("generate_cypher", "validate_cypher")
+langgraph.add_conditional_edges("validate_cypher",validate_cypher_condition,)
 langgraph.add_edge("semantic_layer", "generate_cypher")
-langgraph.add_edge("generate_cypher", "execute_cypher")
 langgraph.add_edge("execute_cypher", "generate_final_answer")
+langgraph.add_edge("correct_cypher", "validate_cypher")
 langgraph.add_edge("generate_final_answer", END)
 
 graph = langgraph.compile()
@@ -544,9 +596,14 @@ def main():
 
         with st.chat_message("assistant"):
             st.write_stream(generate_streaming_message())
+        
+        # Log the complete response
+        logging.info(f"Complete response: {complete_response}")
 
         # Append the complete assistant response to chat history
         st.session_state.chat_history.append({"role": "assistant", "message": complete_response})
 
 if __name__ == "__main__":
+    # Log start of the app
+    logging.info("Starting Agentic RAG chatbot --------------------------------------------------")
     main()
