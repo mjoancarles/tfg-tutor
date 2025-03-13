@@ -10,7 +10,6 @@ from typing_extensions import List, TypedDict
 from langgraph.graph import START, StateGraph, MessagesState, END
 from langchain_core.messages import HumanMessage, BaseMessage, AIMessage, SystemMessage
 from langchain_core.prompts import PromptTemplate
-from langgraph.checkpoint.memory import MemorySaver
 
 st.set_page_config(
     page_title="experiment",
@@ -31,8 +30,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 check_connections()
 llm = init_llm()
 embeddings = init_embeddings()
-langfuse_handler = CallbackHandler()
 session_id = generate_session_id()
+app_name = "rag-app"
+langfuse_handler = CallbackHandler()
 
 # Initialize vector store with Weaviate and custom embeddings
 # https://python.langchain.com/docs/integrations/vectorstores/qdrant/
@@ -142,11 +142,9 @@ def main():
 
         # Process the user's question through the retrieval/generation pipeline
         config = {
-            "callback_handler": [langfuse_handler],
-            "run_name": "RAG-app",
-            "metadata": {
-                "langfuse_session_id": session_id
-            }
+            "callbacks": [langfuse_handler],
+            "run_id": session_id,
+            "run_name": app_name
         }
 
         # Variable to accumulate the complete assistant response
