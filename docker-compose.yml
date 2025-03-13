@@ -42,63 +42,18 @@ services:
     container_name: streamlit
     depends_on:
       - qdrant
+      - neo4j
     ports:
       - "443:8501" # host port 443 maps to container port 8501 443:8501
     networks:
       - graphrag_network
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    environment:
-      - LLM_HOST=host.docker.internal #to be changed to llm
-      - LLM_PORT=8000
-      - EMBEDDINGS_HOST=host.docker.internal #to be changed to embeddings
-      - EMBEDDINGS_PORT=8099
-      - QDRANT_HOST=qdrant
-      - QDRANT_PORT=6333
-      - QDRANT_COLLECTION=publications
-      - NEO4J_HOST=neo4j
-      - NEO4J_PORT=7300
+    env_file:
+      - .env
     volumes:
       - ./app:/app
       - ./plugins:/plugins
-
-#  embeddings:
-#    build: ./embeddings
-#    container_name: embeddings
-#    ports:
-#      - "8055:8055"
-#    deploy:
-#      resources:
-#        reservations:
-#          devices:
-#            - driver: nvidia
-#              #count: 1
-#              capabilities: [gpu]
-#    networks:
-#      - graphrag_network
-#    extra_hosts:
-#      - "host.docker.internal:host-gateway"
-#
-#  llm:
-#    build: ./llm
-#    container_name: llm
-#    ports:
-#      - "8070:8070"
-#    deploy:
-#      resources:
-#        reservations:
-#          devices:
-#            - driver: nvidia
-#              capabilities: [gpu]
-#    networks:
-#      - graphrag_network
-#    environment:
-#      - HUGGINGFACE_TOKEN_FILE=/run/secrets/huggingface_token
-#    secrets:
-#      - huggingface_token
-#    extra_hosts:
-#      - "host.docker.internal:host-gateway"
-
 
 volumes:
   qdrant_storage:
@@ -107,8 +62,3 @@ volumes:
 networks:
   graphrag_network:
     driver: bridge
-
-secrets:
-  huggingface_token:
-    file: ./huggingface_token.txt
-    

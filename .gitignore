@@ -7,3 +7,4 @@ embeddings/
 custom_chat_model.py
 __pycache__/
 *old.py
+.env

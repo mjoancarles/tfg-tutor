@@ -1,7 +1,8 @@
+from langfuse.callback import CallbackHandler
+import os
 # https://python.langchain.com/docs/tutorials/rag/
 import streamlit as st
 import logging
-import os
 from utils import * # Import the utils.py functions
 from langchain_core.documents import Document
 from langchain_core.prompts.base import format_document
@@ -12,12 +13,12 @@ from langchain_core.prompts import PromptTemplate
 from langgraph.checkpoint.memory import MemorySaver
 
 st.set_page_config(
-    page_title="RAG",
+    page_title="experiment",
     page_icon=":desktop_computer:",
     layout="centered",
     initial_sidebar_state="collapsed", # To be changed if having filters!
 )
-st.title("RAG - TFG Tutor Chatbot")
+st.title("TFG Tutor Chatbot")
 
 # --- Enforce Login ---
 _ ='''if not st.session_state.get("logged_in", False):
@@ -30,12 +31,15 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 check_connections()
 llm = init_llm()
 embeddings = init_embeddings()
+langfuse_handler = CallbackHandler()
+session_id = generate_session_id()
 
 # Initialize vector store with Weaviate and custom embeddings
 # https://python.langchain.com/docs/integrations/vectorstores/qdrant/
 vector_store = get_qdrant_vector_store(embeddings)
 
-def initialize_app(memory):
+def initialize_app():
+
     template = """
     General Info:
     You are an assistant answering questions about TFGs (Final Degree Projects by Catalan students) and CVC scientific publications. The CVC is a non-profit research center established in 1995 by the Generalitat de Catalunya and the UAB, focusing on computer vision research and collaborating on TFGs.
@@ -101,13 +105,13 @@ def initialize_app(memory):
     graph_builder = StateGraph(State).add_sequence([retrieve, generate])
     graph_builder.add_edge(START, "retrieve")
     graph_builder.add_edge("generate", END)
-    graph = graph_builder.compile(checkpointer=memory)
+    graph = graph_builder.compile()
     
     return graph
 
-memory = MemorySaver()
+#memory = MemorySaver()
 # Initialize the app (this part runs once per script execution)
-graph = initialize_app(memory)
+graph = initialize_app()
 
 def main():
     # Initialize chat history in session state if not already present
@@ -137,7 +141,13 @@ def main():
         pipeline_messages.append(HumanMessage(user_input))
 
         # Process the user's question through the retrieval/generation pipeline
-        config = {"configurable": {"thread_id": "1"}}
+        config = {
+            "callback_handler": [langfuse_handler],
+            "run_name": "RAG-app",
+            "metadata": {
+                "langfuse_session_id": session_id
+            }
+        }
 
         # Variable to accumulate the complete assistant response
         complete_response = ""

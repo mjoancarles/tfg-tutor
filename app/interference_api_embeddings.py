@@ -6,9 +6,9 @@ import os
 class InferenceAPIEmbeddings(Embeddings):
     
     def __init__(self):
-        EMBEDDINGS_HOST = os.getenv("EMBEDDINGS_HOST", "host.docker.internal")
-        EMBEDDINGS_PORT = os.getenv("EMBEDDINGS_PORT", "8055")
-        self.api_url = f"http://{EMBEDDINGS_HOST}:{EMBEDDINGS_PORT}/generate_embeddings/"
+        embeddings_host = os.getenv("EMBEDDINGS_HOST", "localhost")
+        embeddings_port = os.getenv("EMBEDDINGS_PORT", "8099")
+        self.api_url = f"http://{embeddings_host}:{embeddings_port}/generate_embeddings/"
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         payload = {"sentences": texts}  # Updated to match FastAPI's expected payload structure

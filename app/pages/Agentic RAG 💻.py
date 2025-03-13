@@ -1,8 +1,5 @@
 import streamlit as st
-from langchain.chat_models import init_chat_model
 from langchain_neo4j import Neo4jGraph, Neo4jVector
-import requests
-from langchain.embeddings.base import Embeddings
 import os
 import json
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
@@ -15,7 +12,6 @@ from langchain_core.example_selectors import SemanticSimilarityExampleSelector
 from langgraph.graph import END, START, StateGraph
 from langchain_core.output_parsers import StrOutputParser
 from unidecode import unidecode
-from neo4j import GraphDatabase
 from neo4j.exceptions import CypherSyntaxError
 from langchain_neo4j.chains.graph_qa.cypher_utils import CypherQueryCorrector, Schema
 from utils import *
@@ -40,47 +36,10 @@ _ = '''if not st.session_state.get("logged_in", False):
     st.switch_page("Welcome.py")
     st.stop()'''
 
-class InferenceAPIEmbeddings(Embeddings):
-    
-    def __init__(self):
-        EMBEDDINGS_HOST = os.getenv("EMBEDDINGS_HOST", "localhost")
-        EMBEDDINGS_PORT = os.getenv("EMBEDDINGS_PORT", "8099")
-        self.api_url = f"http://{EMBEDDINGS_HOST}:{EMBEDDINGS_PORT}/generate_embeddings/"
-
-    def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        payload = {"sentences": texts}  # Updated to match FastAPI's expected payload structure
-        response = requests.post(self.api_url, json=payload)
-        if response.status_code == 200:
-            return response.json()["embeddings"]  # Return the entire list of embeddings
-        else:
-            raise ValueError(f"Failed to get embeddings: {response.status_code} - {response.text}")
-
-    def embed_query(self, text: str) -> List[float]:
-        return self.embed_documents([text])[0]  # Embed a single query and return its embedding
-
-# Initialize the LLM
-def init_llm():
-    return init_chat_model(
-        model="meta-llama/Meta-Llama-3.1-8B-Instruct",
-        model_provider="openai",
-        api_key="empty",
-        base_url="http://host.docker.internal:8111/v1",
-        temperature=0.2,
-        max_tokens=700,
-    )
-    
 llm = init_llm()
-embeddings = InferenceAPIEmbeddings()
-
-os.environ["NEO4J_URI"] = "bolt://host.docker.internal:7300"
-os.environ["NEO4J_USERNAME"] = "neo4j"
-os.environ["NEO4J_PASSWORD"] = "password"
-
+embeddings = init_embeddings()
+neo4j_session = neo4j_get_session()
 enhanced_graph = Neo4jGraph(enhanced_schema=True)
-
-AUTH = (os.environ["NEO4J_USERNAME"], os.environ["NEO4J_PASSWORD"])
-neo4j_driver = GraphDatabase.driver(os.environ["NEO4J_URI"], auth=AUTH)
-neo4j_session = neo4j_driver.session(database="neo4j")
 
 # ------------------------------------------------------------------------------------
 # STATE DEFINITIONS
