@@ -36,7 +36,7 @@ _ = '''if not st.session_state.get("logged_in", False):
     st.stop()'''
 
 llm = init_llm()
-app_name = "TFG Tutor Chatbot"
+app_name = "agentic-rag-app"
 langfuse_handler = CallbackHandler()
 embeddings = init_embeddings()
 neo4j_session = neo4j_get_session()
