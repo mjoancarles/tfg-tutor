@@ -1,5 +1,6 @@
 import streamlit as st
 from langchain_neo4j import Neo4jGraph, Neo4jVector
+from langfuse.callback import CallbackHandler
 import os
 import json
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
@@ -29,14 +30,14 @@ st.set_page_config(
     initial_sidebar_state="collapsed", # To be changed if having filters!
 )
 
-st.title("Agentic RAG - TFG Tutor Chatbot")
-
 # --- Enforce Login ---
 _ = '''if not st.session_state.get("logged_in", False):
     st.switch_page("Welcome.py")
     st.stop()'''
 
 llm = init_llm()
+app_name = "TFG Tutor Chatbot"
+langfuse_handler = CallbackHandler()
 embeddings = init_embeddings()
 neo4j_session = neo4j_get_session()
 enhanced_graph = Neo4jGraph(enhanced_schema=True)
@@ -508,6 +509,22 @@ graph = langgraph.compile()
 # ------------------------------------------------------------------------------------
 
 def main():
+    col1, col2 = st.columns([0.7, 0.3])
+    with col1:
+        st.title("TFG Tutor Chatbot")
+    with col2:
+        # Add blank lines to push the button down
+        st.write("")
+        st.write("")
+        if st.button("Refresh Chat Session", type="primary"):
+            st.session_state["session_id"] = generate_session_id()
+            st.session_state["chat_history"] = []
+            st.rerun()
+
+    # Ensure session_id is stored in session state
+    if "session_id" not in st.session_state:
+        st.session_state["session_id"] = generate_session_id()
+
     # Initialize chat history in session state if not already present
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
@@ -535,7 +552,13 @@ def main():
         pipeline_messages.append(HumanMessage(user_input))
 
         # Process the user's question through the retrieval/generation pipeline
-        config = {"configurable": {"thread_id": "1"}}
+        config = {
+            "callbacks": [langfuse_handler],
+            "run_name": app_name,
+            "metadata": {
+                "langfuse_session_id": st.session_state["session_id"]
+            }
+        }
 
         # Variable to accumulate the complete assistant response
         complete_response = ""

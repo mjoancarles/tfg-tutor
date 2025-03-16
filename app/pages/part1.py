@@ -13,7 +13,7 @@ from langchain_core.prompts import PromptTemplate
 from langgraph.checkpoint.memory import MemorySaver
 
 st.set_page_config(
-    page_title="experiment",
+    page_title="TFG Tutor Chatbot",
     page_icon=":desktop_computer:",
     layout="centered",
     initial_sidebar_state="collapsed", # To be changed if having filters!

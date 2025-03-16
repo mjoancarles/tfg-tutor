@@ -42,14 +42,16 @@ def welcome_page():
     with col1:
         if st.button("RAG Approach"):
             try:
-                st.switch_page("pages/RAG 💻.py")
+                st.switch_page("pages/part1.py")
             except ImportError:
                 st.info("Please use the sidebar menu to navigate to the RAG page.")
     
     with col2:
         if st.button("Agentic RAG + graph Approach"):
-            st.info("This page is coming soon. Stay tuned!")
-            # Agentic RAG 💻
+            try:
+                st.switch_page("pages/part2.py")
+            except ImportError:
+                st.info("Please use the sidebar menu to navigate to the Agentic RAG page.")
 
 def main():
     # If the user is not logged in, show the login page.
