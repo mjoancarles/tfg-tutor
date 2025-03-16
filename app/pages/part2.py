@@ -24,7 +24,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # ------------------------------------------------------------------------------------
 
 st.set_page_config(
-    page_title="Agentic RAG",
+    page_title="TFG Tutor Chatbot",
     page_icon=":desktop_computer:",
     layout="centered",
     initial_sidebar_state="collapsed", # To be changed if having filters!
