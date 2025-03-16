@@ -10,6 +10,7 @@ from typing_extensions import List, TypedDict
 from langgraph.graph import START, StateGraph, MessagesState, END
 from langchain_core.messages import HumanMessage, BaseMessage, AIMessage, SystemMessage
 from langchain_core.prompts import PromptTemplate
+from langgraph.checkpoint.memory import MemorySaver
 
 st.set_page_config(
     page_title="experiment",
@@ -17,7 +18,6 @@ st.set_page_config(
     layout="centered",
     initial_sidebar_state="collapsed", # To be changed if having filters!
 )
-st.title("TFG Tutor Chatbot")
 
 # --- Enforce Login ---
 _ ='''if not st.session_state.get("logged_in", False):
@@ -30,7 +30,6 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 check_connections()
 llm = init_llm()
 embeddings = init_embeddings()
-session_id = generate_session_id()
 app_name = "rag-app"
 langfuse_handler = CallbackHandler()
 
@@ -38,7 +37,7 @@ langfuse_handler = CallbackHandler()
 # https://python.langchain.com/docs/integrations/vectorstores/qdrant/
 vector_store = get_qdrant_vector_store(embeddings)
 
-def initialize_app():
+def initialize_app(memory):
 
     template = """
     General Info:
@@ -80,9 +79,8 @@ def initialize_app():
     )
 
     # https://python.langchain.com/docs/tutorials/rag/
-    class State(TypedDict):
+    class State(MessagesState):
         context: List[Document]
-        messages: List[BaseMessage]
 
     def retrieve(state: State):
         retrieved_docs = vector_store.similarity_search(state["messages"][0].content)
@@ -91,7 +89,6 @@ def initialize_app():
     def generate(state: State):
         messages = state["messages"]
         print(messages)
-        question = messages[0].content
         #docs_content = "\n\n".join(doc.page_content for doc in state["context"])
         docs_content = "\n\n".join(format_document(doc, document_prompt) for doc in state["context"])
         system_prompt = prompt.invoke({"context": docs_content}).to_string()
@@ -105,18 +102,40 @@ def initialize_app():
     graph_builder = StateGraph(State).add_sequence([retrieve, generate])
     graph_builder.add_edge(START, "retrieve")
     graph_builder.add_edge("generate", END)
-    graph = graph_builder.compile()
-    
+    graph = graph_builder.compile(checkpointer=memory)
     return graph
 
-#memory = MemorySaver()
-# Initialize the app (this part runs once per script execution)
-graph = initialize_app()
-
 def main():
+    # Ensure 'memory' is created only once per session
+    if "memory" not in st.session_state:
+        st.session_state.memory = MemorySaver()
+
+    # Ensure 'graph' is created only once per session
+    if "graph" not in st.session_state:
+        st.session_state.graph = initialize_app(st.session_state.memory)
+
+    # We’ll use a local variable for convenience
+    graph = st.session_state.graph
+    
+    col1, col2 = st.columns([0.7, 0.3])
+    with col1:
+        st.title("TFG Tutor Chatbot")
+    with col2:
+        # Add blank lines to push the button down
+        st.write("")
+        st.write("")
+        if st.button("Refresh Chat Session", type="primary"):
+            st.session_state["session_id"] = generate_session_id()
+            st.session_state["chat_history"] = []
+            st.rerun()
+
+    # Ensure session_id is stored in session state
+    if "session_id" not in st.session_state:
+        st.session_state["session_id"] = generate_session_id()
+
     # Initialize chat history in session state if not already present
     if "chat_history" not in st.session_state:
-        st.session_state.chat_history = []
+        st.session_state["chat_history"] = []
 
     # Build pipeline_messages list from the chat history
     pipeline_messages = []
@@ -142,9 +161,12 @@ def main():
 
         # Process the user's question through the retrieval/generation pipeline
         config = {
+            "configurable": {"thread_id": st.session_state["session_id"]},
             "callbacks": [langfuse_handler],
-            "run_id": session_id,
-            "run_name": app_name
+            "run_name": app_name,
+            "metadata": {
+                "langfuse_session_id": st.session_state["session_id"]
+            }
         }
 
         # Variable to accumulate the complete assistant response
@@ -154,7 +176,7 @@ def main():
             nonlocal complete_response
             # Pass the full conversation history into the pipeline
             for message, metadata in graph.stream(
-                {"messages": pipeline_messages},
+                {"messages": [HumanMessage(user_input)]},
                 stream_mode="messages",
                 config=config
             ):
