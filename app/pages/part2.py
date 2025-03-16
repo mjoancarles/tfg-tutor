@@ -509,18 +509,6 @@ graph = langgraph.compile()
 # ------------------------------------------------------------------------------------
 
 def main():
-    col1, col2 = st.columns([0.7, 0.3])
-    with col1:
-        st.title("TFG Tutor Chatbot")
-    with col2:
-        # Add blank lines to push the button down
-        st.write("")
-        st.write("")
-        if st.button("Refresh Chat Session", type="primary"):
-            st.session_state["session_id"] = generate_session_id()
-            st.session_state["chat_history"] = []
-            st.rerun()
-
     # Ensure session_id is stored in session state
     if "session_id" not in st.session_state:
         st.session_state["session_id"] = generate_session_id()
@@ -528,6 +516,24 @@ def main():
     # Initialize chat history in session state if not already present
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
+    
+    col1, col2 = st.columns([0.7, 0.3], gap="small", vertical_alignment="bottom")
+    with col1:
+        st.title("TFG Tutor Chatbot")
+    with col2:
+        # Add blank lines to push the button down
+        st.markdown(
+            f"""
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <p style="font-weight: bold; margin: 0;">Session ID: {st.session_state['session_id']}</p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        if st.button("Refresh Chat Session", type="primary"):
+            st.session_state["session_id"] = generate_session_id()
+            st.session_state["chat_history"] = []
+            st.rerun()
 
     # Build pipeline_messages list from the chat history
     pipeline_messages = []
