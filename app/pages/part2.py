@@ -201,17 +201,22 @@ text2cypher_prompt = ChatPromptTemplate.from_messages(
         (
             "human",
             (
-                """You are a Neo4j expert. Given an input question, create a syntactically correct Cypher query to run. Do not wrap the response in any backticks or anything else. Respond with a Cypher statement only! Avoid Cartesian products by ensuring that nodes are connected logically. For example, if retrieving publications and their authors, ensure that they are linked via relationships. Use OPTIONAL MATCH sparingly and only where relationships might not exist. If named entities do not use special characters like à, è, ò, etc., use the regular characters a, e, o, etc., when writing the Cypher query. Here is the graph schema information: {schema}
+                """You are a Neo4j expert. Given an input question, create a syntactically correct Cypher query to run. Do not wrap the response in any backticks or anything else. Respond with a Cypher statement only! Avoid Cartesian products by ensuring that nodes are connected logically. For example, if retrieving publications and their authors, ensure that they are linked via relationships. Use OPTIONAL MATCH sparingly and only where relationships might not exist. If named entities do not use special characters like à, è, ò, etc., use the regular characters a, e, o, etc., when writing the Cypher query. Here is the graph schema information:
+{schema}
 
-Below are a number of examples of questions and their corresponding Cypher queries: {fewshot_examples}
+Below are a number of examples of questions and their corresponding Cypher queries:
+{fewshot_examples}
 
-User input (that MUST be solved): {question}
+User input (that MUST be solved):
+{question}
 
 If asked for who might supervise a TFG related to X, please use keywords and try finding the authors that did publications that conatins them, for instance.
 
-These are the semantic entities extracted from the user's question just by using embeddings. Use those author and keyword names to create the Cypher query whenever needed. Please only use the entities that are relevant to the user's question; if the question asks only for a person, do not include keywords. {semantic_entities}
+These are the semantic entities extracted from the user's question just by using embeddings. Use those author and keyword names to create the Cypher query whenever needed. Please only use the entities that are relevant to the user's question; if the question asks only for a person, do not include keywords.
+{semantic_entities}
 
-Past chat history, only to be used if relevant to the user query; if not, please ignore: {history}
+Past chat history, only to be used if relevant to the user query; if not, please ignore:
+{history}
 
 Try including OPTIONAL MATCH in the query to retrieve additional information if available. When asked about publications only, do not include TFGs in the query and vice versa.
 
