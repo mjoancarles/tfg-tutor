@@ -102,13 +102,26 @@ def check_connections():
         return
 
 def format_semantic_entities(semantic_entities: dict) -> str:
+    """
+    Returns a human-readable string of relevant keywords and authors
+    from the semantic_entities dictionary, ignoring scores.
+    """
     if not semantic_entities:
         return ""
-    formatted_parts = []
-    for entity_type, results in semantic_entities.items():
-        if results:
-            candidates = ", ".join(
-                [f"{item['candidate']} ({item['score']:.2f})" for item in results]
-            )
-            formatted_parts.append(f"{entity_type}: {candidates}")
-    return "; ".join(formatted_parts)
+
+    keywords = [item["candidate"] for item in semantic_entities.get("Keyword", [])]
+    people = [item["candidate"] for item in semantic_entities.get("Person", [])]
+
+    output_lines = []
+
+    if keywords:
+        output_lines.append("Relevant Keywords for the user query:")
+        output_lines.append(", ".join(keywords))
+        output_lines.append("")  # blank line
+
+    if people:
+        output_lines.append("Relevant Authors for the user query:")
+        output_lines.append(", ".join(people))
+        output_lines.append("")  # blank line
+
+    return "\n".join(output_lines).strip()
