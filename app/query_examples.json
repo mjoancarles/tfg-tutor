@@ -1,117 +1,116 @@
 {
-    "examples": [
-      {
-        "question": "Which TFG is the oldest in the database?",
-        "query": "MATCH (t:TFG)\nWHERE t.year IS NOT NULL\nWITH t\nORDER BY t.year ASC\nLIMIT 1\nRETURN t.title AS oldestTFG, t.year AS earliestYear"
-      },
-      {
-        "question": "How many TFG projects are there in the Engineering faculty?",
-        "query": "MATCH (t:TFG)\nWHERE toLower(t.faculty) CONTAINS toLower('Engineering')\nRETURN count(t) AS totalTFGs"
-      },
-      {
-        "question": "Which TFG projects were completed in 2023?",
-        "query": "MATCH (t:TFG)\nWHERE t.year = '2023'\nOPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)\nOPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)\nRETURN t.title AS title, t.year AS year, t.abstract AS abstract,\n       t.bachelor AS bachelor, t.faculty AS faculty, t.link AS link,\n       collect(DISTINCT s.name) AS students,\n       collect(DISTINCT i.name) AS investigators"
-      },
-      {
-        "question": "Find all TFG projects under the bachelor 'Smart and Sustainable Cities Management'.",
-        "query": "MATCH (t:TFG)\nWHERE toLower(t.bachelor) CONTAINS toLower('Smart and Sustainable Cities Management')\nOPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)\nOPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)\nRETURN t.title AS title, t.year AS year, t.abstract AS abstract, t.link AS link,\n       collect(DISTINCT s.name) AS students,\n       collect(DISTINCT i.name) AS investigators"
-      },
-      {
-        "question": "List all TFG projects related to the keyword 'green space'.",
-        "query": "MATCH (t:TFG)-[:CONTAINS_KEYWORD]->(k:Keyword)\nWHERE toLower(k.keyword) CONTAINS toLower('green space')\nOPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)\nOPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)\nRETURN t.title AS title, t.year AS year, t.abstract AS abstract,\n       t.bachelor AS bachelor, t.faculty AS faculty, t.link AS link,\n       collect(DISTINCT s.name) AS students,\n       collect(DISTINCT i.name) AS investigators"
-      },
-      {
-        "question": "List all students who completed a TFG under investigator 'cristina domingo-marimon'.",
-        "query": "MATCH (i:Person:Investigator)-[:SUPERVISES]->(t:TFG)<-[:WRITES]-(s:Person:Student)\nWHERE toLower(i.name) CONTAINS toLower('cristina domingo-marimon')\nRETURN s.name AS student, t.title AS title, t.year AS year,\n       t.abstract AS abstract, t.link AS link"
-      },
-      {
-        "question": "Which investigator has supervised the most TFG projects?",
-        "query": "MATCH (i:Person:Investigator)-[:SUPERVISES]->(t:TFG)\nWITH i, count(t) AS tfgCount, collect(t.title) AS projects\nRETURN i.name AS investigator, tfgCount, projects\nORDER BY tfgCount DESC\nLIMIT 1"
-      },
-      {
-        "question": "Find all publications by investigator 'cristina domingo-marimon'.",
-        "query": "MATCH (i:Person:Investigator)-[:WRITES]->(p:Publication)\nWHERE toLower(i.name) CONTAINS toLower('cristina domingo-marimon')\nOPTIONAL MATCH (a:Person:Investigator)-[:WRITES]->(p)\nRETURN p.title AS title, p.type AS type, p.year AS year,\n       p.abstract AS abstract, p.link AS link, p.doi AS doi, p.publication AS publication,\n       collect(DISTINCT a.name) AS authors"
-      },
-      {
-        "question": "Which TFG from 2022 has the highest number of keywords?",
-        "query": "MATCH (t:TFG {year: '2022'})-[:CONTAINS_KEYWORD]->(k:Keyword)\nWITH t, count(k) AS keywordCount\nORDER BY keywordCount DESC\nLIMIT 1\nRETURN t.title AS tfgTitle, keywordCount"
-      },
-      {
-        "question": "Identify the most common keywords in TFG projects from the Science faculty.",
-        "query": "MATCH (t:TFG)-[:CONTAINS_KEYWORD]->(k:Keyword)\nWHERE toLower(t.faculty) CONTAINS toLower('Science')\nWITH k, count(*) AS frequency, collect(t.title) AS projects\nRETURN k.keyword AS keyword, frequency, projects\nORDER BY frequency DESC"
-      },
-      {
-        "question": "Which investigator wrote a publication about CNN?",
-        "query": "MATCH (i:Person:Investigator)-[:WRITES]->(p:Publication)\nWHERE toLower(p.title) CONTAINS toLower('cnn')\n   OR toLower(p.abstract) CONTAINS toLower('cnn')\nRETURN i.name AS investigator, p.title AS publicationTitle, p.year AS year"
-      },
-      {
-        "question": "Which is the main keyword in common between the earliest and latest publication by 'adria molina'?",
-        "query": "MATCH (p:Person {name: 'adria molina'})-[:WRITES]->(pub:Publication)\nWITH p, pub\nORDER BY pub.year ASC\nWITH p, collect(pub) AS allPubs\nWHERE size(allPubs) > 1\nWITH head(allPubs) AS firstPub, last(allPubs) AS lastPub\nMATCH (firstPub)-[:CONTAINS_KEYWORD]->(k:Keyword)<-[:CONTAINS_KEYWORD]-(lastPub)\nRETURN k.keyword AS commonKeyword"
-      },
-      {
-        "question": "Which investigator supervised the most TFGs in the Science faculty?",
-        "query": "MATCH (i:Person:Investigator)-[:SUPERVISES]->(t:TFG)\nWHERE toLower(t.faculty) CONTAINS toLower('science')\nWITH i, count(t) AS tfgCount\nRETURN i.name AS investigator, tfgCount\nORDER BY tfgCount DESC\nLIMIT 1"
-      },
-      {
-        "question": "Which investigator should I contact regarding a 'reinforcement learning' TFG?",
-        "query": "MATCH (t:TFG)-[:CONTAINS_KEYWORD]->(k:Keyword)\nWHERE toLower(k.keyword) CONTAINS toLower('reinforcement learning')\nOPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)\nRETURN i.name AS potentialSupervisors, collect(t.title) AS relevantTFGs"
-      },
-      {
-        "question": "Which students wrote a TFG and also supervised at least one TFG?",
-        "query": "MATCH (p:Person:Student)-[:WRITES]->(t:TFG)\nMATCH (p:Person:Investigator)-[:SUPERVISES]->(t2:TFG)\nRETURN p.name AS person,\n       collect(DISTINCT t.title) AS TFGsAsStudent,\n       collect(DISTINCT t2.title) AS TFGsAsSupervisor"
-      },
-      {
-        "question": "Among TFGs supervised by 'cristina domingo-marimon', which TFG shares the most keywords with the publications of 'antonio espinosa'?",
-        "query": "MATCH (sup:Person:Investigator)-[:SUPERVISES]->(t:TFG)-[:CONTAINS_KEYWORD]->(kw:Keyword)\nWHERE toLower(sup.name) CONTAINS toLower('cristina domingo-marimon')\nMATCH (auth:Person:Investigator)-[:WRITES]->(p:Publication)-[:CONTAINS_KEYWORD]->(kw2:Keyword)\nWHERE toLower(auth.name) CONTAINS toLower('antonio espinosa')\nWITH t, collect(DISTINCT kw.keyword) AS tfgKeywords, collect(DISTINCT kw2.keyword) AS pubKeywords\nWITH t, apoc.coll.intersection(tfgKeywords, pubKeywords) AS sharedKeywords\nRETURN t.title AS tfgTitle, size(sharedKeywords) AS sharedCount, sharedKeywords\nORDER BY sharedCount DESC\nLIMIT 1"
-      },
-      {
-        "question": "Which TFG includes the highest overlap of keywords with publications mentioning 'machine learning'?",
-        "query": "MATCH (pub:Publication)-[:CONTAINS_KEYWORD]->(kwML:Keyword)\nWHERE toLower(pub.abstract) CONTAINS toLower('machine learning')\n   OR toLower(kwML.keyword) CONTAINS toLower('machine learning')\nWITH collect(DISTINCT kwML.keyword) AS mlKeywords\n\nMATCH (t:TFG)-[:CONTAINS_KEYWORD]->(kw:Keyword)\nWITH t, mlKeywords, collect(DISTINCT kw.keyword) AS tfgKeywords\nWITH t, apoc.coll.intersection(mlKeywords, tfgKeywords) AS overlap\nRETURN t.title AS tfgTitle, size(overlap) AS overlapCount, overlap\nORDER BY overlapCount DESC\nLIMIT 1"
-      },
-      {
-        "question": "Which TFG from the 'Data Science' bachelor is co-authored by the most students?",
-        "query": "MATCH (t:TFG)\nWHERE toLower(t.bachelor) CONTAINS toLower('Data Science')\nOPTIONAL MATCH (s:Person:Student)-[:WRITES]->(t)\nWITH t, collect(s.name) AS allStudents\nRETURN t.title AS tfgTitle, size(allStudents) AS totalStudents, allStudents\nORDER BY totalStudents DESC\nLIMIT 1"
-      },
-      {
-        "question": "Give me TFG about Quantum Computing.",
-        "query": "MATCH (t:TFG)-[:CONTAINS_KEYWORD]->(k:Keyword)\nWHERE toLower(k.keyword) CONTAINS toLower('quantum computing')\n   OR toLower(k.keyword) CONTAINS toLower('qubits')\n   OR toLower(k.keyword) CONTAINS toLower('quantum algorithm')\nOPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)\nOPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)\nRETURN t.title AS title, t.year AS year, t.abstract AS abstract, collect(DISTINCT s.name) AS students, collect(DISTINCT i.name) AS investigators, collect(DISTINCT k.keyword) AS keywords"
-      },
-      {
-        "question": "Give me TFG about Biotechnology.",
-        "query": "MATCH (t:TFG)-[:CONTAINS_KEYWORD]->(k:Keyword)\nWHERE toLower(k.keyword) CONTAINS toLower('biotechnology')\n   OR toLower(k.keyword) CONTAINS toLower('genetic engineering')\n   OR toLower(k.keyword) CONTAINS toLower('biomedicine')\nOPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)\nOPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)\nRETURN t.title AS title, t.year AS year, t.abstract AS abstract, collect(DISTINCT s.name) AS students, collect(DISTINCT i.name) AS investigators, collect(DISTINCT k.keyword) AS keywords"
-      },
-      {
-        "question": "Give me TFG about Renewable Energy.",
-        "query": "MATCH (t:TFG)-[:CONTAINS_KEYWORD]->(k:Keyword)\nWHERE toLower(k.keyword) CONTAINS toLower('renewable energy')\n   OR toLower(k.keyword) CONTAINS toLower('solar power')\n   OR toLower(k.keyword) CONTAINS toLower('wind energy')\n   OR toLower(k.keyword) CONTAINS toLower('hydro power')\nOPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)\nOPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)\nRETURN t.title AS title, t.year AS year, t.abstract AS abstract, collect(DISTINCT s.name) AS students, collect(DISTINCT i.name) AS investigators, collect(DISTINCT k.keyword) AS keywords"
-      },
-      {
-        "question": "Give me TFG about Robotics.",
-        "query": "MATCH (t:TFG)-[:CONTAINS_KEYWORD]->(k:Keyword)\nWHERE toLower(k.keyword) CONTAINS toLower('robotics')\n   OR toLower(k.keyword) CONTAINS toLower('automation')\n   OR toLower(k.keyword) CONTAINS toLower('mechatronics')\nOPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)\nOPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)\nRETURN t.title AS title, t.year AS year, t.abstract AS abstract, collect(DISTINCT s.name) AS students, collect(DISTINCT i.name) AS investigators, collect(DISTINCT k.keyword) AS keywords"
-      },
-      {
-        "question": "Give me TFG about Data Visualization.",
-        "query": "MATCH (t:TFG)-[:CONTAINS_KEYWORD]->(k:Keyword)\nWHERE toLower(k.keyword) CONTAINS toLower('data visualization')\n   OR toLower(k.keyword) CONTAINS toLower('visual analytics')\n   OR toLower(k.keyword) CONTAINS toLower('information design')\nOPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)\nOPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)\nRETURN t.title AS title, t.year AS year, t.abstract AS abstract, collect(DISTINCT s.name) AS students, collect(DISTINCT i.name) AS investigators, collect(DISTINCT k.keyword) AS keywords"
-      },
-      {
-        "question": "Give me TFG about Machine Learning.",
-        "query": "MATCH (t:TFG)-[:CONTAINS_KEYWORD]->(k:Keyword)\nWHERE toLower(k.keyword) CONTAINS toLower('machine learning')\n   OR toLower(k.keyword) CONTAINS toLower('neural network')\n   OR toLower(k.keyword) CONTAINS toLower('deep learning')\nOPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)\nOPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)\nRETURN t.title AS title, t.year AS year, t.abstract AS abstract, collect(DISTINCT s.name) AS students, collect(DISTINCT i.name) AS investigators, collect(DISTINCT k.keyword) AS keywords"
-      },
-      {
-        "question": "Give me TFG about Cybersecurity.",
-        "query": "MATCH (t:TFG)-[:CONTAINS_KEYWORD]->(k:Keyword)\nWHERE toLower(k.keyword) CONTAINS toLower('cybersecurity')\n   OR toLower(k.keyword) CONTAINS toLower('information security')\n   OR toLower(k.keyword) CONTAINS toLower('data protection')\n   OR toLower(k.keyword) CONTAINS toLower('cryptography')\nOPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)\nOPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)\nRETURN t.title AS title, t.year AS year, t.abstract AS abstract, collect(DISTINCT s.name) AS students, collect(DISTINCT i.name) AS investigators, collect(DISTINCT k.keyword) AS keywords"
-      },
-      {
-        "question": "Give me TFG about Big Data.",
-        "query": "MATCH (t:TFG)-[:CONTAINS_KEYWORD]->(k:Keyword)\nWHERE toLower(k.keyword) CONTAINS toLower('big data')\n   OR toLower(k.keyword) CONTAINS toLower('data analytics')\n   OR toLower(k.keyword) CONTAINS toLower('data mining')\n   OR toLower(k.keyword) CONTAINS toLower('hadoop')\nOPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)\nOPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)\nRETURN t.title AS title, t.year AS year, t.abstract AS abstract, collect(DISTINCT s.name) AS students, collect(DISTINCT i.name) AS investigators, collect(DISTINCT k.keyword) AS keywords"
-      },
-      {
-        "question": "Give me TFG about Artificial Intelligence.",
-        "query": "MATCH (t:TFG)-[:CONTAINS_KEYWORD]->(k:Keyword)\nWHERE toLower(k.keyword) CONTAINS toLower('artificial intelligence')\n   OR toLower(k.keyword) CONTAINS toLower('ai')\n   OR toLower(k.keyword) CONTAINS toLower('machine learning')\n   OR toLower(k.keyword) CONTAINS toLower('neural network')\nOPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)\nOPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)\nRETURN t.title AS title, t.year AS year, t.abstract AS abstract, collect(DISTINCT s.name) AS students, collect(DISTINCT i.name) AS investigators, collect(DISTINCT k.keyword) AS keywords"
-      },
-      {
-        "question": "Give me TFG about Internet of Things.",
-        "query": "MATCH (t:TFG)-[:CONTAINS_KEYWORD]->(k:Keyword)\nWHERE toLower(k.keyword) CONTAINS toLower('internet of things')\n   OR toLower(k.keyword) CONTAINS toLower('iot')\n   OR toLower(k.keyword) CONTAINS toLower('sensors')\n   OR toLower(k.keyword) CONTAINS toLower('connectivity')\nOPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)\nOPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)\nRETURN t.title AS title, t.year AS year, t.abstract AS abstract, collect(DISTINCT s.name) AS students, collect(DISTINCT i.name) AS investigators, collect(DISTINCT k.keyword) AS keywords"
-      }
-    ]
-  }
-  
+  "examples": [
+    {
+      "question": "Which TFG is the oldest in the database?",
+      "query": "MATCH (t:TFG)\nWHERE t.year IS NOT NULL\nWITH t\nORDER BY t.year ASC\nLIMIT 1\nRETURN t.title AS oldestTFG,\n       t.year AS earliestYear,\n       t.link AS link"
+    },
+    {
+      "question": "How many TFG projects are there in the Engineering faculty?",
+      "query": "MATCH (t:TFG)\nWHERE toLower(t.faculty) CONTAINS toLower('engineering')\nRETURN count(t) AS totalTFGs"
+    },
+    {
+      "question": "Which TFG projects were completed in 2023?",
+      "query": "MATCH (t:TFG)\nWHERE t.year = '2023'\nOPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)\nOPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)\nRETURN t.title AS title,\n       t.year AS year,\n       t.abstract AS abstract,\n       t.bachelor AS bachelor,\n       t.faculty AS faculty,\n       t.link AS link,\n       collect(DISTINCT s.name) AS students,\n       collect(DISTINCT i.name) AS investigators"
+    },
+    {
+      "question": "Find all TFG projects under the bachelor 'Smart and Sustainable Cities Management'.",
+      "query": "MATCH (t:TFG)\nWHERE toLower(t.bachelor) CONTAINS toLower('smart and sustainable cities management')\nOPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)\nOPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)\nRETURN t.title AS title,\n       t.year AS year,\n       t.abstract AS abstract,\n       t.link AS link,\n       collect(DISTINCT s.name) AS students,\n       collect(DISTINCT i.name) AS investigators"
+    },
+    {
+      "question": "List all TFG projects related to the keyword 'green space'.",
+      "query": "MATCH (t:TFG)-[:CONTAINS_KEYWORD]->(k:Keyword)\nWHERE ANY(term IN ['green space'] WHERE toLower(k.keyword) CONTAINS toLower(term))\nOPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)\nOPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)\nRETURN t.title AS title,\n       t.year AS year,\n       t.abstract AS abstract,\n       t.bachelor AS bachelor,\n       t.faculty AS faculty,\n       t.link AS link,\n       collect(DISTINCT s.name) AS students,\n       collect(DISTINCT i.name) AS investigators"
+    },
+    {
+      "question": "List all students who completed a TFG under investigator 'cristina domingo-marimon'.",
+      "query": "MATCH (i:Person:Investigator)-[:SUPERVISES]->(t:TFG)<-[:WRITES]-(s:Person:Student)\nWHERE toLower(i.name) CONTAINS toLower('cristina domingo-marimon')\nRETURN s.name AS student,\n       t.title AS title,\n       t.link AS link,\n       t.year AS year,\n       t.abstract AS abstract"
+    },
+    {
+      "question": "Which investigator has supervised the most TFG projects?",
+      "query": "MATCH (i:Person:Investigator)-[:SUPERVISES]->(t:TFG)\nWITH i, count(t) AS tfgCount, collect(t.title) AS projects\nRETURN i.name AS investigator,\n       tfgCount,\n       projects\nORDER BY tfgCount DESC\nLIMIT 1"
+    },
+    {
+      "question": "Find all publications by investigator 'cristina domingo-marimon'.",
+      "query": "MATCH (i:Person:Investigator)-[:WRITES]->(p:Publication)\nWHERE toLower(i.name) CONTAINS toLower('cristina domingo-marimon')\nOPTIONAL MATCH (a:Person)-[:WRITES]->(p)\nRETURN p.title AS title,\n       p.type AS type,\n       p.year AS year,\n       p.abstract AS abstract,\n       p.link AS link,\n       p.doi AS doi,\n       p.publication AS publication,\n       collect(DISTINCT a.name) AS authors"
+    },
+    {
+      "question": "Which TFG from 2022 has the highest number of keywords?",
+      "query": "MATCH (t:TFG {year: '2022'})-[:CONTAINS_KEYWORD]->(k:Keyword)\nWITH t, count(k) AS keywordCount\nORDER BY keywordCount DESC\nLIMIT 1\nRETURN t.title AS tfgTitle,\n       t.link AS link,\n       keywordCount"
+    },
+    {
+      "question": "Identify the most common keywords in TFG projects from the Science faculty.",
+      "query": "MATCH (t:TFG)-[:CONTAINS_KEYWORD]->(k:Keyword)\nWHERE toLower(t.faculty) CONTAINS toLower('science')\nWITH k, count(*) AS frequency, collect(t.title) AS projects\nRETURN k.keyword AS keyword,\n       frequency,\n       projects\nORDER BY frequency DESC"
+    },
+    {
+      "question": "Which investigator wrote a publication about CNN?",
+      "query": "MATCH (i:Person:Investigator)-[:WRITES]->(p:Publication)\nWHERE toLower(p.title) CONTAINS toLower('cnn')\n   OR toLower(p.abstract) CONTAINS toLower('cnn')\nRETURN i.name AS investigator,\n       p.title AS publicationTitle,\n       p.year AS year"
+    },
+    {
+      "question": "Which is the main keyword in common between the earliest and latest publication by 'adria molina'?",
+      "query": "MATCH (p:Person {name: 'adria molina'})-[:WRITES]->(pub:Publication)\nWITH p, pub\nORDER BY pub.year ASC\nWITH p, collect(pub) AS allPubs\nWHERE size(allPubs) > 1\nWITH head(allPubs) AS firstPub, last(allPubs) AS lastPub\nMATCH (firstPub)-[:CONTAINS_KEYWORD]->(k:Keyword)<-[:CONTAINS_KEYWORD]-(lastPub)\nRETURN k.keyword AS commonKeyword"
+    },
+    {
+      "question": "Which investigator supervised the most TFGs in the Science faculty?",
+      "query": "MATCH (i:Person:Investigator)-[:SUPERVISES]->(t:TFG)\nWHERE toLower(t.faculty) CONTAINS toLower('science')\nWITH i, count(t) AS tfgCount\nRETURN i.name AS investigator,\n       tfgCount\nORDER BY tfgCount DESC\nLIMIT 1"
+    },
+    {
+      "question": "Which investigator should I contact regarding a 'reinforcement learning' TFG?",
+      "query": "MATCH (t:TFG)-[:CONTAINS_KEYWORD]->(k:Keyword)\nWHERE toLower(k.keyword) CONTAINS toLower('reinforcement learning')\nOPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)\nRETURN i.name AS potentialSupervisors,\n       collect(t.title) AS relevantTFGs"
+    },
+    {
+      "question": "Which students wrote a TFG and also supervised at least one TFG?",
+      "query": "MATCH (p:Person:Student)-[:WRITES]->(t:TFG)\nMATCH (p:Person:Investigator)-[:SUPERVISES]->(t2:TFG)\nRETURN p.name AS person,\n       collect(DISTINCT t.title) AS TFGsAsStudent,\n       collect(DISTINCT t2.title) AS TFGsAsSupervisor"
+    },
+    {
+      "question": "Among TFGs supervised by 'cristina domingo-marimon', which TFG shares the most keywords with the publications of 'antonio espinosa'?",
+      "query": "MATCH (sup:Person:Investigator)-[:SUPERVISES]->(t:TFG)-[:CONTAINS_KEYWORD]->(kw:Keyword)\nWHERE toLower(sup.name) CONTAINS toLower('cristina domingo-marimon')\nMATCH (auth:Person:Investigator)-[:WRITES]->(p:Publication)-[:CONTAINS_KEYWORD]->(kw2:Keyword)\nWHERE toLower(auth.name) CONTAINS toLower('antonio espinosa')\nWITH t, collect(DISTINCT kw.keyword) AS tfgKeywords, collect(DISTINCT kw2.keyword) AS pubKeywords\nWITH t, apoc.coll.intersection(tfgKeywords, pubKeywords) AS sharedKeywords\nRETURN t.title AS tfgTitle,\n       t.link AS link,\n       size(sharedKeywords) AS sharedCount,\n       sharedKeywords\nORDER BY sharedCount DESC\nLIMIT 1"
+    },
+    {
+      "question": "Which TFG includes the highest overlap of keywords with publications mentioning 'machine learning'?",
+      "query": "MATCH (pub:Publication)-[:CONTAINS_KEYWORD]->(kwML:Keyword)\nWHERE toLower(pub.abstract) CONTAINS toLower('machine learning')\n   OR toLower(kwML.keyword) CONTAINS toLower('machine learning')\nWITH collect(DISTINCT kwML.keyword) AS mlKeywords\nMATCH (t:TFG)-[:CONTAINS_KEYWORD]->(kw:Keyword)\nWITH t, mlKeywords, collect(DISTINCT kw.keyword) AS tfgKeywords\nWITH t, apoc.coll.intersection(mlKeywords, tfgKeywords) AS overlap\nRETURN t.title AS tfgTitle,\n       t.link AS link,\n       size(overlap) AS overlapCount,\n       overlap\nORDER BY overlapCount DESC\nLIMIT 1"
+    },
+    {
+      "question": "Which TFG from the 'Data Science' bachelor is co-authored by the most students?",
+      "query": "MATCH (t:TFG)\nWHERE toLower(t.bachelor) CONTAINS toLower('data science')\nOPTIONAL MATCH (s:Person:Student)-[:WRITES]->(t)\nWITH t, collect(s.name) AS allStudents\nRETURN t.title AS tfgTitle,\n       t.link AS link,\n       size(allStudents) AS totalStudents,\n       allStudents\nORDER BY totalStudents DESC\nLIMIT 1"
+    },
+    {
+      "question": "Give me TFG about Quantum Computing.",
+      "query": "MATCH (t:TFG)-[:CONTAINS_KEYWORD]->(k:Keyword)\nWHERE ANY(term IN ['quantum computing','qubits','quantum algorithm']\n           WHERE toLower(k.keyword) CONTAINS toLower(term))\nOPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)\nOPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)\nRETURN t.title AS title,\n       t.year AS year,\n       t.abstract AS abstract,\n       t.link AS link,\n       collect(DISTINCT s.name) AS students,\n       collect(DISTINCT i.name) AS investigators,\n       collect(DISTINCT k.keyword) AS keywords"
+    },
+    {
+      "question": "Give me TFG about Biotechnology.",
+      "query": "MATCH (t:TFG)-[:CONTAINS_KEYWORD]->(k:Keyword)\nWHERE ANY(term IN ['biotechnology','genetic engineering','biomedicine']\n           WHERE toLower(k.keyword) CONTAINS toLower(term))\nOPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)\nOPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)\nRETURN t.title AS title,\n       t.year AS year,\n       t.abstract AS abstract,\n       t.link AS link,\n       collect(DISTINCT s.name) AS students,\n       collect(DISTINCT i.name) AS investigators,\n       collect(DISTINCT k.keyword) AS keywords"
+    },
+    {
+      "question": "Give me TFG about Renewable Energy.",
+      "query": "MATCH (t:TFG)-[:CONTAINS_KEYWORD]->(k:Keyword)\nWHERE ANY(term IN ['renewable energy','solar power','wind energy','hydro power']\n           WHERE toLower(k.keyword) CONTAINS toLower(term))\nOPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)\nOPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)\nRETURN t.title AS title,\n       t.year AS year,\n       t.abstract AS abstract,\n       t.link AS link,\n       collect(DISTINCT s.name) AS students,\n       collect(DISTINCT i.name) AS investigators,\n       collect(DISTINCT k.keyword) AS keywords"
+    },
+    {
+      "question": "Give me TFG about Robotics.",
+      "query": "MATCH (t:TFG)-[:CONTAINS_KEYWORD]->(k:Keyword)\nWHERE ANY(term IN ['robotics','automation','mechatronics']\n           WHERE toLower(k.keyword) CONTAINS toLower(term))\nOPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)\nOPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)\nRETURN t.title AS title,\n       t.year AS year,\n       t.abstract AS abstract,\n       t.link AS link,\n       collect(DISTINCT s.name) AS students,\n       collect(DISTINCT i.name) AS investigators,\n       collect(DISTINCT k.keyword) AS keywords"
+    },
+    {
+      "question": "Give me TFG about Data Visualization.",
+      "query": "MATCH (t:TFG)-[:CONTAINS_KEYWORD]->(k:Keyword)\nWHERE ANY(term IN ['data visualization','visual analytics','information design']\n           WHERE toLower(k.keyword) CONTAINS toLower(term))\nOPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)\nOPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)\nRETURN t.title AS title,\n       t.year AS year,\n       t.abstract AS abstract,\n       t.link AS link,\n       collect(DISTINCT s.name) AS students,\n       collect(DISTINCT i.name) AS investigators,\n       collect(DISTINCT k.keyword) AS keywords"
+    },
+    {
+      "question": "Give me TFG about Machine Learning.",
+      "query": "MATCH (t:TFG)-[:CONTAINS_KEYWORD]->(k:Keyword)\nWHERE ANY(term IN ['machine learning','neural network','deep learning']\n           WHERE toLower(k.keyword) CONTAINS toLower(term))\nOPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)\nOPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)\nRETURN t.title AS title,\n       t.year AS year,\n       t.abstract AS abstract,\n       t.link AS link,\n       collect(DISTINCT s.name) AS students,\n       collect(DISTINCT i.name) AS investigators,\n       collect(DISTINCT k.keyword) AS keywords"
+    },
+    {
+      "question": "Give me TFG about Cybersecurity.",
+      "query": "MATCH (t:TFG)-[:CONTAINS_KEYWORD]->(k:Keyword)\nWHERE ANY(term IN ['cybersecurity','information security','data protection','cryptography']\n           WHERE toLower(k.keyword) CONTAINS toLower(term))\nOPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)\nOPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)\nRETURN t.title AS title,\n       t.year AS year,\n       t.abstract AS abstract,\n       t.link AS link,\n       collect(DISTINCT s.name) AS students,\n       collect(DISTINCT i.name) AS investigators,\n       collect(DISTINCT k.keyword) AS keywords"
+    },
+    {
+      "question": "Give me TFG about Big Data.",
+      "query": "MATCH (t:TFG)-[:CONTAINS_KEYWORD]->(k:Keyword)\nWHERE ANY(term IN ['big data','data analytics','data mining','hadoop']\n           WHERE toLower(k.keyword) CONTAINS toLower(term))\nOPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)\nOPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)\nRETURN t.title AS title,\n       t.year AS year,\n       t.abstract AS abstract,\n       t.link AS link,\n       collect(DISTINCT s.name) AS students,\n       collect(DISTINCT i.name) AS investigators,\n       collect(DISTINCT k.keyword) AS keywords"
+    },
+    {
+      "question": "Give me TFG about Artificial Intelligence.",
+      "query": "MATCH (t:TFG)-[:CONTAINS_KEYWORD]->(k:Keyword)\nWHERE ANY(term IN ['artificial intelligence','ai','machine learning','neural network']\n           WHERE toLower(k.keyword) CONTAINS toLower(term))\nOPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)\nOPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)\nRETURN t.title AS title,\n       t.year AS year,\n       t.abstract AS abstract,\n       t.link AS link,\n       collect(DISTINCT s.name) AS students,\n       collect(DISTINCT i.name) AS investigators,\n       collect(DISTINCT k.keyword) AS keywords"
+    },
+    {
+      "question": "Give me TFG about Internet of Things.",
+      "query": "MATCH (t:TFG)-[:CONTAINS_KEYWORD]->(k:Keyword)\nWHERE ANY(term IN ['internet of things','iot','sensors','connectivity']\n           WHERE toLower(k.keyword) CONTAINS toLower(term))\nOPTIONAL MATCH (t)<-[:WRITES]-(s:Person:Student)\nOPTIONAL MATCH (i:Person:Investigator)-[:SUPERVISES]->(t)\nRETURN t.title AS title,\n       t.year AS year,\n       t.abstract AS abstract,\n       t.link AS link,\n       collect(DISTINCT s.name) AS students,\n       collect(DISTINCT i.name) AS investigators,\n       collect(DISTINCT k.keyword) AS keywords"
+    }
+  ]
+}
