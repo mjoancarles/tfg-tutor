@@ -54,6 +54,7 @@ services:
     volumes:
       - ./app:/app
       - ./plugins:/plugins
+      - ./user_data:/app/user_data
 
 volumes:
   qdrant_storage:
