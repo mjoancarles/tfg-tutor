@@ -101,16 +101,18 @@ def check_connections():
         st.error(str(e))
         return
 
-def format_semantic_entities(semantic_entities: dict) -> str:
+def format_semantic_entities(semantic_entities: dict, candidates: int) -> str:
     """
     Returns a human-readable string of relevant keywords and authors
     from the semantic_entities dictionary, ignoring scores.
+    Only the top `candidates` items from each category will be included.
     """
     if not semantic_entities:
         return ""
 
-    keywords = [item["candidate"] for item in semantic_entities.get("Keyword", [])]
-    people = [item["candidate"] for item in semantic_entities.get("Person", [])]
+    # Slice the lists to include only the top `candidates`
+    keywords = [item["candidate"] for item in semantic_entities.get("Keyword", [])][:candidates]
+    people = [item["candidate"] for item in semantic_entities.get("Person", [])][:candidates]
 
     output_lines = []
 

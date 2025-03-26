@@ -1,19 +1,19 @@
 {
-    "questions": [
-      {
-        "id": "q1",
-        "text": "Which tutor should I choose for doing an Alzheimer-related TFG?",
-        "type": "1",
-        "answers": [
-          {
-            "model": "rag",
-            "text": "Based on the retrieved documents, I would recommend considering the following tutors for an Alzheimer-related TFG: Petia Radeva, Sergio Escalera, and Javier M. Olaso. [Detailed description of each tutor’s relevance and expertise follows.]"
-          },
-          {
-            "model": "agentic-rag",
-            "text": "Based on the provided query results, unfortunately, none of the potential supervisors in the query results have a clear connection to Alzheimer research. [Suggested alternatives based on extracted semantic entities and their relevance to user's interest.]"
-          }
-        ]
-      }
-    ]
-  }
+  "questions": [
+    {
+      "id": "q1",
+      "text": "Which tutor should I choose for doing an Alzheimer-related TFG?",
+      "type": "1",
+      "answers": [
+        {
+          "model": "rag",
+          "text": "Based on the retrieved documents, I would recommend considering the following tutors for an Alzheimer-related TFG: Petia Radeva, Sergio Escalera, and Javier M. Olaso. [Detailed description of each tutor’s relevance and expertise follows.]"
+        },
+        {
+          "model": "agentic-rag",
+          "text": "Based on the provided query results, unfortunately, none of the potential supervisors in the query results have a clear connection to Alzheimer research. [Suggested alternatives based on extracted semantic entities and their relevance to user's interest.]"
+        }
+      ]
+    }
+  ]
+}

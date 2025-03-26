@@ -42,6 +42,8 @@ embeddings = init_embeddings()
 neo4j_session = neo4j_get_session()
 enhanced_graph = Neo4jGraph(enhanced_schema=True)
 
+logging.info(enhanced_graph)
+
 # ------------------------------------------------------------------------------------
 # STATE DEFINITIONS
 # ------------------------------------------------------------------------------------
@@ -70,17 +72,8 @@ class OutputState(TypedDict):
 
 # Updated system prompt for academic guidance
 guardrails_system = """
-As an intelligent assistant, your primary objective is to decide whether a given question is related to academic research guidance for students preparing their Treball de Fi de Grau (TFG).
-If the question is relevant to this topic, output "academic". Otherwise, output "end".
-To make this decision, assess the content of the question and determine if it refers to:
-- Searching for relevant TFGs, academic publications, or keywords.
-- Finding potential tutors or researchers based on their previous work.
-- Finding information about possible researchers and their publications.
-- Finding about someone's information, because they are a potential tutor.
-- Identifying academic connections between students, investigators, publications, and keywords.
-- Requesting insights into specific research topics or fields of study.
-In case of doubt, redirect to the academic guidance path always.
-Provide only the specified output: "academic" or "end".
+Decide if a question is about academic guidance for final university projects (TFG), professors/students, or publications—or if a database query might help. 
+Default to "academic" unless it is clearly unrelated; then output "end".
 """
 
 guardrails_prompt = ChatPromptTemplate.from_messages(
@@ -104,7 +97,7 @@ def guardrails(state: InputState) -> OverallState:
     Decides if the question is related to academic research guidance or not.
     """
     logging.info("Guardrails node")
-    guardrails_output = guardrails_chain.invoke({"question": state.get("messages")[0].content})
+    guardrails_output = guardrails_chain.invoke({"question": state.get("messages")[-1].content})
     database_records = None
     if guardrails_output.decision == "end":
         database_records = "This question is not related to academic research guidance. Therefore, I cannot answer this question."
@@ -124,27 +117,9 @@ def semantic_layer(state: OverallState) -> OverallState:
     Extracts semantic entities from the user's question.
     """
     logging.info("Semantic Layer node")
-    user_query = unidecode(state.get("messages")[0].content)
+    user_query = unidecode(state.get("messages")[-1].content)
     query_vector = embeddings.embed_query(user_query)
     semantic_entities = {}
-     
-    _ = '''# Query top 5 TFG candidates based on abstract embeddings
-    result_tfg = neo4j_session.run("""
-        CALL db.index.vector.queryNodes('tfgAbstractIndex', 5, $v)
-        YIELD node, score
-        RETURN node.title AS candidate, score
-        ORDER BY score DESC
-    """, v=query_vector).data()
-    semantic_entities["TFG"] = result_tfg
-    
-    # Query top 5 Publication candidates based on abstract embeddings
-    result_pub = neo4j_session.run("""
-        CALL db.index.vector.queryNodes('pubAbstractIndex', 5, $v)
-        YIELD node, score
-        RETURN node.title AS candidate, score
-        ORDER BY score DESC
-    """, v=query_vector).data()
-    semantic_entities["Publication"] = result_pub'''
     
     # Query top 5 Keyword candidates based on keyword embeddings
     result_kw = neo4j_session.run("""
@@ -168,7 +143,7 @@ def semantic_layer(state: OverallState) -> OverallState:
     
     return {
         "steps": ["semantic_layer"],
-        "semantic_entities": semantic_entities,
+        "semantic_entities": format_semantic_entities(semantic_entities, 6),
     }
 
 # ------------------------------------------------------------------------------------
@@ -212,7 +187,7 @@ User input (that MUST be solved):
 
 If asked for who might supervise a TFG related to X, please use keywords and try finding the authors that did publications that conatins them, for instance.
 
-These are the semantic entities extracted from the user's question just by using embeddings. Use those author and keyword names to create the Cypher query whenever needed. Please only use the entities that are relevant to the user's question; if the question asks only for a person, do not include keywords.
+These are the semantic entities extracted from the user's question just by using embeddings. Use those author and keyword names to create the Cypher query whenever needed. Please only use the entities that are relevant to the user's question; if the question asks only for a person, do not include keywords for instance.
 {semantic_entities}
 
 Past chat history, only to be used if relevant to the user query; if not, please ignore:
@@ -242,15 +217,15 @@ def generate_cypher(state: OverallState) -> OverallState:
         [
             f"Question: {el['question']}{NL}Cypher:{el['query']}"
             for el in example_selector.select_examples(
-                {"question": state.get("messages")[0].content}
+                {"question": state.get("messages")[-1].content}
             )
         ]
     )
     history = "\n".join([(message.type + ": " + message.content) for message in state.get("messages")[1:]])
-    semantic_context = format_semantic_entities(state.get("semantic_entities"))
+    semantic_context = state.get("semantic_entities")
     generated_cypher = text2cypher_chain.invoke(
         {
-            "question": state.get("messages")[0].content,
+            "question": state.get("messages")[-1].content,
             "history": history,
             "semantic_entities": semantic_context,
             "fewshot_examples": fewshot_examples,
@@ -361,7 +336,7 @@ def correct_cypher(state: OverallState) -> OverallState:
     Correct the Cypher statement based on the provided errors.
     """
     history = "\n".join([(message.type + ": " + message.content) for message in state.get("messages")[1:]])
-    question = state.get("messages")[0].content
+    question = state.get("messages")[-1].content
     corrected_cypher = correct_cypher_chain.invoke(
         {
             "question": question,
@@ -418,14 +393,12 @@ Your role is to help students seeking academic guidance on TFGs and publications
 - By default, return only the top 5 results (unless the user requests more).
 - Summarize briefly, highlighting key details in **bold**.
 - Always answer in English.
-- If no relevant results are found, still provide a helpful academic response based on your knowledge.
             """,
         ),
         (
             "human",
             """
-Given the user's question, retrieved results from the neo4j database, and the chat history,
-please generate a final response for the user.
+Generate a final response for the user given the following information
 
 Question:
 {question}
@@ -452,10 +425,16 @@ def generate_final_answer(state: OverallState) -> OutputState:
     """
     logging.info("Generate Final Answer node")
     history = "\n".join([(message.type + ": " + message.content) for message in state.get("messages")[1:]])
-    semantic_context = format_semantic_entities(state.get("semantic_entities"))
+    semantic_context = state.get("semantic_entities")
+    logging.info("GENERATE FINAL ANSWER")
+    logging.info(f"Semantic entities: {semantic_context}")
+    logging.info(f"Database records: {state.get('database_records')}")
+    logging.info(f"History: {history}")
+    logging.info(f"Question: {state.get('messages')[-1].content}")
+    
     final_answer = generate_final_chain.invoke(
         {
-            "question": state.get("messages")[0].content,
+            "question": state.get("messages")[-1].content,
             "results": state.get("database_records"),
             "semantic_entities": semantic_context,
             "history": history,

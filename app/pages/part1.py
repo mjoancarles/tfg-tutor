@@ -37,7 +37,7 @@ langfuse_handler = CallbackHandler()
 # https://python.langchain.com/docs/integrations/vectorstores/qdrant/
 vector_store = get_qdrant_vector_store(embeddings)
 
-def initialize_app(memory):
+def initialize_app():
 
     template = """
     General Info:
@@ -79,11 +79,12 @@ def initialize_app(memory):
     )
 
     # https://python.langchain.com/docs/tutorials/rag/
-    class State(MessagesState):
+    class State(TypedDict):
+        messages: List[BaseMessage]
         context: List[Document]
 
     def retrieve(state: State):
-        retrieved_docs = vector_store.similarity_search(state["messages"][0].content)
+        retrieved_docs = vector_store.similarity_search(state["messages"][-1].content)
         return {"context": retrieved_docs}
 
     def generate(state: State):
@@ -102,17 +103,13 @@ def initialize_app(memory):
     graph_builder = StateGraph(State).add_sequence([retrieve, generate])
     graph_builder.add_edge(START, "retrieve")
     graph_builder.add_edge("generate", END)
-    graph = graph_builder.compile(checkpointer=memory)
+    graph = graph_builder.compile()
     return graph
 
 def main():
-    # Ensure 'memory' is created only once per session
-    if "memory" not in st.session_state:
-        st.session_state.memory = MemorySaver()
-
     # Ensure 'graph' is created only once per session
     if "graph" not in st.session_state:
-        st.session_state.graph = initialize_app(st.session_state.memory)
+        st.session_state.graph = initialize_app()
 
     # We’ll use a local variable for convenience
     graph = st.session_state.graph
@@ -167,7 +164,6 @@ def main():
 
         # Process the user's question through the retrieval/generation pipeline
         config = {
-            "configurable": {"thread_id": st.session_state["session_id"]},
             "callbacks": [langfuse_handler],
             "run_name": app_name,
             "metadata": {
@@ -182,7 +178,7 @@ def main():
             nonlocal complete_response
             # Pass the full conversation history into the pipeline
             for message, metadata in graph.stream(
-                {"messages": [HumanMessage(user_input)]},
+                {"messages": pipeline_messages},
                 stream_mode="messages",
                 config=config
             ):
