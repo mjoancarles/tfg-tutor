@@ -195,6 +195,8 @@ Past chat history, only to be used if relevant to the user query; if not, please
 
 Try including OPTIONAL MATCH in the query to retrieve additional information if available. When asked about publications only, do not include TFGs in the query and vice versa.
 
+Make sure to LIMIT the responses if asking questions that might return lots of results.
+
 Cypher query:"""
             ),
         ),
