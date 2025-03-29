@@ -428,16 +428,16 @@ def generate_final_answer(state: OverallState) -> OutputState:
     logging.info("Generate Final Answer node")
     history = "\n".join([(message.type + ": " + message.content) for message in state.get("messages")[1:]])
     semantic_context = state.get("semantic_entities")
-    logging.info("GENERATE FINAL ANSWER")
-    logging.info(f"Semantic entities: {semantic_context}")
-    logging.info(f"Database records: {state.get('database_records')}")
-    logging.info(f"History: {history}")
-    logging.info(f"Question: {state.get('messages')[-1].content}")
+    #logging.info("GENERATE FINAL ANSWER")
+    #logging.info(f"Semantic entities: {semantic_context}")
+    #logging.info(f"Database records: {state.get('database_records')}")
+    #logging.info(f"History: {history}")
+    #logging.info(f"Question: {state.get('messages')[-1].content}")
     
     final_answer = generate_final_chain.invoke(
         {
             "question": state.get("messages")[-1].content,
-            "results": state.get("database_records"),
+            "results": str(state.get("database_records"))[:10000],
             "semantic_entities": semantic_context,
             "history": history,
         }
